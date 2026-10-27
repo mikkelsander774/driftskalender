@@ -485,7 +485,9 @@ function viewTasks() {
   let people = activeMembers().slice().sort((a, b) => (a.id === me ? -1 : 0) - (b.id === me ? -1 : 0));
   if (S.onlyMine) people = people.filter(m => m.id === me);
   const doneCount = S.tasks.filter(t => t.done).length;
-  const cmp = (a, b) => (a.due_date || '9999') < (b.due_date || '9999') ? -1 : (a.due_date || '9999') > (b.due_date || '9999') ? 1 : (a.created_at < b.created_at ? -1 : 1);
+  // Sorteret efter det tidspunkt opgaven først kræver noget: deadline, eller periodens start. Uden tid til sidst.
+  const when = t => t.due_date || t.start_date || '9999';
+  const cmp = (a, b) => when(a) < when(b) ? -1 : when(a) > when(b) ? 1 : (a.created_at < b.created_at ? -1 : 1);
 
   const head = el('div', { class: 'page-head' },
     el('h1', { text: 'Opgaver' }),
@@ -516,16 +518,38 @@ function viewTasks() {
   return [head, cols.length ? el('div', { class: 'people' }, cols) : el('p', { class: 'loading', text: 'Ingen medarbejdere at vise.' })];
 }
 
+// Dato uden år i indeværende år, ellers med år, så en deadline i næste år ikke misforstås.
+const fmtTaskDate = s => {
+  const d = parseISO(s);
+  return d.getFullYear() === new Date().getFullYear() ? fmtShort(d) : `${fmtShort(d)} ${d.getFullYear()}`;
+};
+
+// Opgavens tid som tekst: enten en deadline eller en periode (fra og til). Begge er valgfri.
+function taskWhen(t) {
+  const today = todayISO();
+  if (t.start_date && t.end_date) {
+    const range = t.start_date === t.end_date ? fmtTaskDate(t.start_date) : `${fmtTaskDate(t.start_date)} – ${fmtTaskDate(t.end_date)}`;
+    const late = !t.done && t.end_date < today;
+    const now = !t.done && t.start_date <= today && today <= t.end_date;
+    return { late, text: (late ? 'Overskredet: ' : 'Periode ') + range + (now ? ' (i gang)' : '') };
+  }
+  if (t.due_date) {
+    const late = !t.done && t.due_date < today;
+    return { late, text: (late ? 'Overskredet: ' : 'Deadline ') + fmtTaskDate(t.due_date) };
+  }
+  return null;
+}
+
 function taskRow(t) {
-  const late = !t.done && t.due_date && t.due_date < todayISO();
+  const w = taskWhen(t);
   const box = el('input', { type: 'checkbox', checked: t.done, 'aria-label': `Markér "${t.title}" som udført`, 'data-fk': 'chk-' + t.id });
   box.addEventListener('change', () => toggleTask(t, box.checked));
   return el('li', { class: `task ${t.priority}` + (t.done ? ' done' : '') },
     box,
     el('button', { type: 'button', class: 'task-main', 'data-fk': 'task-' + t.id, onclick: () => taskDialog(t, t.assignee_id) },
       el('span', { class: 'task-title', text: t.title }),
-      (t.due_date || t.done) ? el('span', { class: 'task-meta' },
-        t.due_date ? el('span', { class: 'due' + (late ? ' late' : ''), text: (late ? 'Overskredet: ' : 'Frist ') + fmtShort(parseISO(t.due_date)) }) : null,
+      (w || t.done) ? el('span', { class: 'task-meta' },
+        w ? el('span', { class: 'due' + (w.late ? ' late' : ''), text: w.text }) : null,
         t.done && t.done_at ? el('span', { text: 'Udført ' + fmtShort(new Date(t.done_at)) }) : null) : null,
       t.details ? el('span', { class: 'task-details', text: t.details }) : null));
 }
@@ -545,9 +569,12 @@ async function toggleTask(t, done) {
 }
 
 function taskDialog(task, assigneeId) {
+  // Tid er valgfri: ingen, en deadline eller en periode (fra og til), aldrig begge.
   const st = task
-    ? { title: task.title, details: task.details || '', priority: task.priority, due: task.due_date || '', assignee: task.assignee_id }
-    : { title: '', details: '', priority: 'fleksibel', due: '', assignee: assigneeId };
+    ? { title: task.title, details: task.details || '', priority: task.priority, assignee: task.assignee_id,
+        mode: task.start_date ? 'periode' : task.due_date ? 'deadline' : 'ingen',
+        due: task.due_date || '', from: task.start_date || '', to: task.end_date || '' }
+    : { title: '', details: '', priority: 'fleksibel', assignee: assigneeId, mode: 'ingen', due: '', from: '', to: '' };
   openDialog({
     title: task ? 'Ret opgave' : 'Tilføj opgave',
     build(body, dlg) {
@@ -557,6 +584,32 @@ function taskDialog(task, assigneeId) {
       who.value = st.assignee;
       who.addEventListener('change', () => { st.assignee = who.value; });
       const title = el('input', { type: 'text', id: 'task-title', maxlength: 200, value: st.title, required: true, oninput: e => { st.title = e.target.value; } });
+      const DATE_MIN = '2000-01-01', DATE_MAX = '2100-12-31';
+      const timeBox = el('div', { class: 'time-box' });
+      const drawTime = () => {
+        if (st.mode === 'deadline') {
+          timeBox.replaceChildren(el('div', { class: 'field' }, el('label', { for: 'task-due', text: 'Deadline' }),
+            el('input', { type: 'date', id: 'task-due', value: st.due, min: DATE_MIN, max: DATE_MAX, onchange: e => { st.due = e.target.value; } })));
+        } else if (st.mode === 'periode') {
+          const from = el('input', { type: 'date', id: 'task-from', value: st.from, min: DATE_MIN, max: DATE_MAX });
+          const to = el('input', { type: 'date', id: 'task-to', value: st.to, min: st.from || DATE_MIN, max: DATE_MAX });
+          from.addEventListener('change', () => {
+            st.from = from.value;
+            // Vælger man fra-dato først, foreslås samme dag som til-dato (en periode på én dag), som man kan flytte.
+            if (st.from && (!st.to || st.to < st.from)) { st.to = st.from; to.value = st.to; }
+            to.min = st.from || DATE_MIN;
+          });
+          to.addEventListener('change', () => { st.to = to.value; });
+          timeBox.replaceChildren(el('div', { class: 'row' },
+            el('div', { class: 'field' }, el('label', { for: 'task-from', text: 'Fra' }), from),
+            el('div', { class: 'field' }, el('label', { for: 'task-to', text: 'Til' }), to)));
+        } else {
+          timeBox.replaceChildren();
+        }
+      };
+      const timeSeg = segmented('task-time', [['ingen', 'Ingen'], ['deadline', 'Deadline'], ['periode', 'Periode']], st.mode, v => { st.mode = v; err.textContent = ''; drawTime(); });
+      timeSeg.setAttribute('aria-labelledby', 'task-time-lbl');
+      drawTime();
       let armed = false;
       const del = task ? el('button', { type: 'button', class: 'btn danger spacer', text: 'Slet opgave' }) : null;
       if (del) del.addEventListener('click', async () => {
@@ -570,10 +623,8 @@ function taskDialog(task, assigneeId) {
         el('div', { class: 'field' }, el('label', { for: 'task-title', text: 'Opgave' }), title),
         el('div', { class: 'field' }, el('span', { class: 'lbl', text: 'Prioritet' }),
           segmented('task-prio', [['fast', PRIO_LABEL.fast, 'fast'], ['fleksibel', PRIO_LABEL.fleksibel, '']], st.priority, v => { st.priority = v; })),
-        el('div', { class: 'row' },
-          el('div', { class: 'field' }, el('label', { for: 'task-who', text: 'Ansvarlig' }), who),
-          el('div', { class: 'field' }, el('label', { for: 'task-due', text: 'Frist (valgfri)' }),
-            el('input', { type: 'date', id: 'task-due', value: st.due, onchange: e => { st.due = e.target.value; } }))),
+        el('div', { class: 'field' }, el('label', { for: 'task-who', text: 'Ansvarlig' }), who),
+        el('div', { class: 'field' }, el('span', { class: 'lbl', id: 'task-time-lbl', text: 'Tid (valgfri)' }), timeSeg, timeBox),
         el('div', { class: 'field' }, el('label', { for: 'task-details', text: 'Beskrivelse (valgfri)' }),
           el('textarea', { id: 'task-details', maxlength: 2000, oninput: e => { st.details = e.target.value; } }, st.details)),
         err,
@@ -581,8 +632,18 @@ function taskDialog(task, assigneeId) {
       form.addEventListener('submit', async ev => {
         ev.preventDefault();
         if (!st.title.trim()) { err.textContent = 'Opgaven skal have en titel.'; title.focus(); return; }
+        // Kun det valgte tidsfelt sendes; de andre ryddes, så en opgave aldrig har både deadline og periode.
+        const time = { due_date: '', start_date: '', end_date: '' };
+        if (st.mode === 'deadline') {
+          if (!st.due) { err.textContent = 'Vælg en deadline, eller vælg Ingen.'; return; }
+          time.due_date = st.due;
+        } else if (st.mode === 'periode') {
+          if (!st.from || !st.to) { err.textContent = 'Vælg både fra og til, eller vælg Ingen.'; return; }
+          if (st.to < st.from) { err.textContent = 'Til-datoen må ikke ligge før fra-datoen.'; return; }
+          time.start_date = st.from; time.end_date = st.to;
+        }
         submit.disabled = true;
-        const payload = { title: st.title, details: st.details, priority: st.priority, due_date: st.due, assignee_id: st.assignee };
+        const payload = Object.assign({ title: st.title, details: st.details, priority: st.priority, assignee_id: st.assignee }, time);
         const r = task ? await api('task_update', Object.assign({ id: task.id }, payload)) : await api('task_add', payload);
         submit.disabled = false;
         if (!r.ok) { err.textContent = r.error || 'Det lykkedes ikke. Prøv igen.'; return; }

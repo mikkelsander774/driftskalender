@@ -301,6 +301,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 .task-main:hover .task-title { text-decoration: underline; }
 .task-meta { display: flex; flex-wrap: wrap; gap: .1rem .75rem; font-size: .88rem; color: var(--ink-3); }
 .task-meta .due.late { color: var(--danger); font-weight: 700; }
+.time-box:empty { display: none; }
+.time-box { margin-top: .25rem; }
 .task-details { font-size: .92rem; color: var(--ink-2); overflow-wrap: anywhere; white-space: pre-line; }
 .task.done .task-title { text-decoration: line-through; color: var(--ink-3); }
 .task.done .task-title::before { background: var(--line); }
