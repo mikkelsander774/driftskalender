@@ -42,33 +42,34 @@ const hourText = t => t === '23:59' ? '24' : t.endsWith(':00') ? t.slice(0, 2) :
 const rangeText = a => `${hourText(a.start)}–${hourText(a.end)}`;
 const initialsOf = name => name.trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
 
-// Ønsker om støtte fra driften. Særligt ønske: Gulvvagt (med dækning) og Stafet.
-// Øvrigt ønske (lilla): På kald eller administrative opgaver. Gulvvagt dækkes af gulvvagt-tilmeldinger i tidsrummet.
+// Ønsker om støtte fra driften. Særligt ønske: Gulvvagt og Stafet, begge med dækningsstatus (grøn/gul/rød).
+// Øvrigt ønske (lilla): På kald eller administrative opgaver. Gulvvagt og Stafet dækkes af gulvvagt-tilmeldinger i tidsrummet.
 const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 const fromMin = n => `${pad(Math.floor(n / 60))}:${pad(n % 60)}`;
 const REQ_KINDS = [['gulvvagt', 'Gulvvagt'], ['stafet', 'Stafet'], ['kald', 'På kald'], ['admin', 'Administrative opgaver']];
 const REQ_GROUPS = [['teamleder', 'Teamledere'], ['tuk', "TUK'er"], ['problemmanager', 'ProblemManager']];
-const REQ_ORDER = ['missing', 'partial', 'covered', 'stafet', 'info']; // værst først
+const REQ_ORDER = ['missing', 'partial', 'covered', 'info']; // værst først
 // Tekst i kalenderens mærke (lang og kort) pr. type og status
 const REQ_CELL = {
   gulvvagt: { covered: 'GV dækket', partial: 'GV delvist', missing: 'Mangler GV', short: 'GV' },
-  stafet: { stafet: 'Stafet', short: 'Stafet' },
+  stafet: { covered: 'Stafet dækket', partial: 'Stafet delvist', missing: 'Mangler stafet', short: 'Stafet' },
   kald: { info: 'På kald', short: 'Kald' },
   admin: { info: 'Administrativt', short: 'Adm.' },
 };
 const reqKindLabel = kind => (REQ_KINDS.find(k => k[0] === kind) || [0, ''])[1];
 const isSpecial = r => r.kind === 'gulvvagt' || r.kind === 'stafet'; // ellers er det et øvrigt ønske
-const timeRequired = kind => kind === 'gulvvagt' || kind === 'kald';
+const timeRequired = kind => kind === 'gulvvagt' || kind === 'stafet' || kind === 'kald';
+const hasCoverage = r => r.kind === 'gulvvagt' || r.kind === 'stafet'; // kun disse kan være dækket eller mangle
 const reqTime = r => r.start ? `${r.start}–${r.end}` : '';
-const reqStateText = state => state === 'covered' ? 'Dækket' : state === 'partial' ? 'Delvist dækket' : 'Mangler gulvvagt';
-// "Gulvvagt ønskes 08:00–16:00", "Stafet", "På kald 08:00–16:00", "Administrative opgaver"
+const reqStateText = (state, kind) => state === 'covered' ? 'Dækket' : state === 'partial' ? 'Delvist dækket' : kind === 'stafet' ? 'Mangler stafet' : 'Mangler gulvvagt';
+// "Gulvvagt ønskes 08:00–16:00", "Stafet ønskes 16:00–21:00", "På kald 08:00–16:00", "Administrative opgaver"
 const reqWhat = r => {
   const t = reqTime(r);
-  if (r.kind === 'gulvvagt') return `Gulvvagt ønskes ${t}`;
+  if (hasCoverage(r)) return `${reqKindLabel(r.kind)} ønskes ${t}`;
   return reqKindLabel(r.kind) + (t ? ' ' + t : '');
 };
 function coverageOf(req, items) {
-  if (req.kind !== 'gulvvagt') return null;
+  if (!hasCoverage(req)) return null;
   const rs = toMin(req.start), re = toMin(req.end);
   const segs = items.filter(a => a.mode === 'gulvvagt')
     .map(a => ({ s: Math.max(rs, toMin(a.start)), e: Math.min(re, toMin(a.end)), a }))
@@ -80,12 +81,12 @@ function coverageOf(req, items) {
   if (cur < re) gaps.push([fromMin(cur), fromMin(re)]);
   return { state: !gaps.length ? 'covered' : segs.length ? 'partial' : 'missing', gaps, segs: segs.map(x => x.a) };
 }
-const reqState = (req, cov) => cov ? cov.state : req.kind === 'stafet' ? 'stafet' : 'info';
+const reqState = (req, cov) => cov ? cov.state : 'info';
 const reqCellLabel = (req, cov) => REQ_CELL[req.kind][reqState(req, cov)];
 // Samme oplysninger som tekst: bruges til hover og skærmlæsere
 const reqText = (req, cov) => {
   const parts = [reqWhat(req).toLowerCase()];
-  if (cov) parts.push(reqStateText(cov.state).toLowerCase());
+  if (cov) parts.push(reqStateText(cov.state, req.kind).toLowerCase());
   if (req.note) parts.push(req.note);
   return parts.join(', ');
 };
@@ -335,7 +336,7 @@ function viewCalendar() {
     el('span', { class: 'key' }, el('span', { class: 'dot g' }), 'Gulvvagt'),
     el('span', { class: 'key' }, el('span', { class: 'dot k' }), 'På kald'),
     el('span', { class: 'key req-keys' }, 'Særligt ønske om støtte:',
-      [['covered', 'Dækket'], ['partial', 'Delvist dækket'], ['missing', 'Mangler'], ['stafet', 'Stafet']]
+      [['covered', 'Dækket'], ['partial', 'Delvist dækket'], ['missing', 'Mangler']]
         .map(([s, t]) => el('span', { class: `req ${s} req-key` }, el('span', { class: 'req-lbl', text: t })))),
     el('span', { class: 'key req-keys' }, el('span', { class: 'req info req-key' }, el('span', { class: 'req-lbl', text: 'Øvrigt ønske om støtte' }))));
 
@@ -344,13 +345,16 @@ function viewCalendar() {
   const monthReqs = S.requests.filter(r => r.day.slice(0, 7) === monthKey);
   const reqSummary = (() => {
     if (!monthReqs.length) return null;
-    const n = { missing: 0, partial: 0, covered: 0, stafet: 0, info: 0 };
-    for (const r of monthReqs) n[reqState(r, coverageOf(r, byDay[r.day] || []))]++;
+    const n = { missing: 0, missingStafet: 0, partial: 0, covered: 0, info: 0 };
+    for (const r of monthReqs) {
+      const s = reqState(r, coverageOf(r, byDay[r.day] || []));
+      n[s === 'missing' && r.kind === 'stafet' ? 'missingStafet' : s]++;
+    }
     const parts = [];
     if (n.missing) parts.push(['missing', `${n.missing} mangler gulvvagt`]);
+    if (n.missingStafet) parts.push(['missing', `${n.missingStafet} mangler stafet`]);
     if (n.partial) parts.push(['partial', `${n.partial} delvist dækket`]);
     if (n.covered) parts.push(['covered', `${n.covered} dækket`]);
-    if (n.stafet) parts.push(['stafet', `${n.stafet} stafet`]);
     const month = MONTH_LONG[S.month.getMonth()];
     return el('p', { class: 'req-summary' },
       parts.length ? [`Særligt ønske om støtte i ${month}: `, parts.map(([s, t], i) => [i ? ' · ' : '', el('b', { class: 'rs ' + s, text: t })])] : null,
@@ -534,7 +538,7 @@ function dayPanel(byDay) {
     const actions = [];
     if (gap && !isViewer()) {
       actions.push(el('button', { type: 'button', class: 'btn small primary', 'data-fk': 'rq-take-' + r.id,
-        text: `Skriv mig på som gulvvagt ${hourText(gap[0])}–${hourText(gap[1])}`, onclick: () => takeGap(gap, 'gulvvagt') }));
+        text: `Skriv mig på ${r.kind === 'stafet' ? 'til stafet' : 'som gulvvagt'} ${hourText(gap[0])}–${hourText(gap[1])}`, onclick: () => takeGap(gap, 'gulvvagt') }));
     }
     if (canEditReq(r)) {
       actions.push(el('button', { type: 'button', class: 'btn small', 'data-fk': 'rq-notify-' + r.id, text: 'Send besked', onclick: () => noticeChooser(r) }));
@@ -543,10 +547,10 @@ function dayPanel(byDay) {
     return el('div', { class: `rq ${st}` },
       el('div', { class: 'rq-head' },
         el('span', { class: 'rq-what', text: reqWhat(r) }),
-        cov ? el('span', { class: 'rq-state', text: reqStateText(cov.state) }) : null),
+        cov ? el('span', { class: 'rq-state', text: reqStateText(cov.state, r.kind) }) : null),
       r.note ? el('p', { class: 'rq-note', text: r.note }) : null,
-      cov && cov.segs.length ? el('p', { class: 'rq-cover', text: 'Gulvvagt: ' + cov.segs.map(nameOf).join(', ') }) : null,
-      cov && cov.gaps.length ? el('p', { class: 'rq-cover', text: 'Mangler gulvvagt ' + cov.gaps.map(g => `${hourText(g[0])}–${hourText(g[1])}`).join(', ') + '.' }) : null,
+      cov && cov.segs.length ? el('p', { class: 'rq-cover', text: (r.kind === 'stafet' ? 'Dækket af: ' : 'Gulvvagt: ') + cov.segs.map(nameOf).join(', ') }) : null,
+      cov && cov.gaps.length ? el('p', { class: 'rq-cover', text: `Mangler ${r.kind === 'stafet' ? 'stafet' : 'gulvvagt'} ` + cov.gaps.map(g => `${hourText(g[0])}–${hourText(g[1])}`).join(', ') + '.' }) : null,
       by ? el('p', { class: 'rq-by', text: `Ønsket af ${by.name}` }) : null,
       actions.length ? el('div', { class: 'rq-actions' }, actions) : null);
   };
@@ -615,7 +619,7 @@ function groupFieldset(selected, legend, hint) {
     hint ? el('p', { class: 'hint', text: hint }) : null);
 }
 
-// Tilføj eller ret et ønske om støtte fra driften. Særligt ønske: Gulvvagt eller Stafet. Øvrigt ønske: På kald eller administrative opgaver.
+// Tilføj eller ret et ønske om støtte fra driften. Særligt ønske: Gulvvagt eller Stafet (begge med tidsrum). Øvrigt ønske: På kald eller administrative opgaver.
 function requestDialog(req, day) {
   if (req && !canEditReq(req)) return;
   const other = !!req && !isSpecial(req);
@@ -634,8 +638,13 @@ function requestDialog(req, day) {
       const noteIn = el('textarea', { id: 'rq-note', maxlength: 300, oninput: e => { st.note = e.target.value; } }, st.note);
       const noteText = () => kindOf() === 'admin' ? 'Hvad drejer det sig om?' : 'Bemærkning (valgfri)';
       const noteLbl = el('label', { for: 'rq-note', text: noteText() });
-      // Gulvvagt og På kald skal have et tidsrum. Stafet og administrative opgaver kan have et, men behøver det ikke.
+      // Gulvvagt, Stafet og På kald skal have et tidsrum. Administrative opgaver kan have et, men behøver det ikke.
+      // Stafet foreslår aftentidsrummet 16-21, så længe tidsrummet ikke er rettet.
       const needsTime = () => timeRequired(kindOf());
+      const suggestTimes = () => {
+        if (kindOf() === 'stafet' && st.start === '08:00' && st.end === '16:00') { st.start = '16:00'; st.end = '21:00'; st.auto = true; }
+        else if (kindOf() !== 'stafet' && st.auto && st.start === '16:00' && st.end === '21:00') { st.start = '08:00'; st.end = '16:00'; st.auto = false; }
+      };
       const timedBox = el('input', { type: 'checkbox', id: 'rq-timed', checked: st.timed });
       timedBox.addEventListener('change', () => { st.timed = timedBox.checked; draw(); });
       const timedRow = el('label', { class: 'check', for: 'rq-timed' }, timedBox, 'Angiv tidsrum (valgfrit)');
@@ -652,7 +661,7 @@ function requestDialog(req, day) {
             onclick: () => { st.start = a; st.end = b; startSel.value = a; endSel.value = b; },
           }))));
       };
-      const refresh = () => { err.textContent = ''; noteLbl.textContent = noteText(); draw(); };
+      const refresh = () => { err.textContent = ''; noteLbl.textContent = noteText(); suggestTimes(); draw(); };
       const subField = el('div', { class: 'field' }, el('span', { class: 'lbl', id: 'rq-sub-lbl', text: 'Øvrigt ønske om støtte til' }),
         segmented('rq-sub', [['kald', 'På kald'], ['admin', 'Administrative opgaver']], st.sub, v => { st.sub = v; refresh(); }));
       subField.hidden = st.group !== 'oevrigt';
@@ -744,7 +753,7 @@ function noticeDialog(req, recipients) {
   const cov = coverageOf(req, S.avail.filter(a => a.day === req.day));
   const lines = ['Hej,', '', `${S.me.name} har oprettet et ønske om støtte fra driften:`, '', `${when}: ${reqWhat(req)}`];
   if (req.note) lines.push(`Bemærkning: ${req.note}`);
-  if (cov) lines.push('Status: ' + reqStateText(cov.state) + (cov.gaps.length ? ' ' + cov.gaps.map(g => `${hourText(g[0])}–${hourText(g[1])}`).join(', ') : ''));
+  if (cov) lines.push('Status: ' + reqStateText(cov.state, req.kind) + (cov.gaps.length ? ' ' + cov.gaps.map(g => `${hourText(g[0])}–${hourText(g[1])}`).join(', ') : ''));
   lines.push('', 'Se ønsket og skriv dig på i driftskalenderen:', location.origin + location.pathname, '', 'Venlig hilsen', S.me.name);
   const text = lines.join('\n');
   const subject = `Ønske om støtte fra driften: ${reqKindLabel(req.kind)} ${when}`;
