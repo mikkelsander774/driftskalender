@@ -100,7 +100,6 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 
 /* Todelt valg (Gulvvagt / På kald, prioritet) */
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: .4rem; }
-.seg.seg-wrap { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .seg-opt { position: relative; }
 .seg-opt input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
 .seg-opt span {
@@ -251,6 +250,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 .req.covered, .rq.covered { --rc: #26804a; --rt: #1b5e37; }
 .req.partial, .rq.partial { --rc: #c98a00; --rt: #7a4f00; }
 .req.missing, .rq.missing { --rc: #b8341c; --rt: #9a2814; }
+.req.stafet, .rq.stafet { --rc: #0b6e8a; --rt: #0a5469; }
 .req-lines { display: grid; grid-template-columns: minmax(0, 1fr); gap: .2rem; }
 .req {
   display: flex; flex-direction: column; align-items: flex-start; gap: 0; min-width: 0; padding: .12rem .35rem .15rem; border-radius: 4px;
@@ -270,11 +270,12 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 .cell.req-covered { --rs: #26804a; }
 .cell.req-partial { --rs: #c98a00; }
 .cell.req-missing { --rs: #b8341c; }
+.cell.req-stafet { --rs: #0b6e8a; }
 .cell.req-info { --rs: #6a58a0; }
 .cell.other .req-lines { opacity: .55; }
 .req-summary { margin: -.2rem 0 .9rem; color: var(--ink-2); }
 .req-summary .rs { color: var(--rt, var(--ink)); }
-.rs.covered { --rt: #1b5e37; } .rs.partial { --rt: #7a4f00; } .rs.missing { --rt: #9a2814; } .rs.info { --rt: #4d3d82; }
+.rs.stafet { --rt: #0a5469; } .rs.covered { --rt: #1b5e37; } .rs.partial { --rt: #7a4f00; } .rs.missing { --rt: #9a2814; } .rs.info { --rt: #4d3d82; }
 
 .reqs { display: grid; gap: .6rem; }
 .reqs h3 { font: 700 1.05rem/1.2 var(--f-display); }
