@@ -190,7 +190,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 }
 .cell.wknd { background: #f4f6f7; }
 .cell.other { background: #f8f9fa; }
-.cell.other .dnum, .cell.other .bundle { opacity: .45; }
+.cell.other .dnum, .cell.other .sign { opacity: .45; }
 .cell:hover { background: #eef4fb; }
 .cell.sel { box-shadow: inset 0 0 0 3px var(--ink); z-index: 1; }
 .cell.picked { background: #e3edf9; box-shadow: inset 0 0 0 3px var(--focus); z-index: 1; }
@@ -201,15 +201,21 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
   display: inline-grid; place-items: center; min-width: 1.7rem; height: 1.7rem; padding: 0 .35rem;
   background: var(--ink); color: #fff; border-radius: 999px; margin: -.2rem 0 0 -.25rem;
 }
-.cnt { font-size: .78rem; color: var(--ink-2); text-align: right; line-height: 1.2; }
-.cnt b { color: var(--ink); }
-
-.bundle { display: grid; grid-template-columns: repeat(3, var(--dot)); gap: .3rem; align-content: start; }
-.dot { width: var(--dot); height: var(--dot); border-radius: 50%; display: block; transition: opacity .15s; }
+.dot { width: var(--dot); height: var(--dot); border-radius: 50%; display: block; }
 .dot.g { background: var(--c); }
 .dot.k { border: 2.5px solid var(--c); background: transparent; }
-.dot.none { background: var(--line); transform: scale(.4); }
-.cal-wrap.focus .dot:not(.is-focus) { opacity: .16; }
+
+/* Tilmeldinger som tekst i cellen: udfyldt prik = Gulvvagt, ring = På kald, i personens farve */
+.sign { display: grid; gap: .15rem; align-content: start; }
+/* Passer navn og tid ikke på én linje, falder tiden ned på linjen under i stedet for at klippe navnet */
+.sg { display: flex; flex-wrap: wrap; align-items: center; column-gap: .35rem; min-width: 0; font-size: .8rem; line-height: 1.3; transition: opacity .15s; }
+.sg .dot { --dot: 9px; flex: none; }
+.sg .dot.k { border-width: 2px; }
+.sg-name { flex: 0 1 auto; min-width: 0; max-width: calc(100% - 1rem); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Tidspunkter i overskriftsskriften: Atkinson har overstreget nul, som ser forkert ud i "08" */
+.sg-time { flex: none; margin-left: auto; color: var(--ink-2); font-family: var(--f-display); font-weight: 500; white-space: nowrap; }
+.sg-ini { display: none; }
+.cal-wrap.focus .sg:not(.is-focus) { opacity: .2; }
 
 /* Opgaver med periode: bjælker i personens farve. Fast prioritet har rødt mærke. */
 .pbar {
@@ -222,7 +228,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
   color: var(--ink); font-size: .8rem; line-height: 1; text-align: left; white-space: nowrap; overflow: hidden;
   transition: opacity .15s;
 }
-.pbar:hover { background: color-mix(in srgb, var(--c) 34%, #fff); }
+/* .hl sættes på alle bjælker for samme opgave, så hele perioden markeres på tværs af uger */
+.pbar:hover, .pbar.hl { background: color-mix(in srgb, var(--c) 38%, #fff); box-shadow: 0 0 0 2px var(--c); z-index: 4; }
 .pbar:focus-visible { outline-offset: 1px; }
 /* Fortsætter fra eller til en anden uge: fladt hjørne uden luft, så bjælken hænger sammen over ugeskiftet */
 .pbar.cont-l { margin-left: -1px; border-left-width: 0; border-radius: 0 4px 4px 0; padding-left: .5rem; }
@@ -310,8 +317,11 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
   .cal-week { --bar-h: 1.15rem; --bar-step: 1.28rem; }
   .pbar { font-size: .72rem; padding-right: .25rem; margin-left: 2px; margin-right: 2px; }
   .pb-who { display: none; }
-  .cnt { display: none; }
-  .bundle { gap: .22rem; grid-template-columns: repeat(3, var(--dot)); }
+  /* Smal skærm: initialer i stedet for navn og tid */
+  .sg { font-size: .7rem; gap: .2rem; }
+  .sg .dot { --dot: 7px; }
+  .sg-name, .sg-time { display: none; }
+  .sg-ini { display: inline; font-weight: 700; }
   :root { --dot: 8px; }
   .dot.k { border-width: 2px; }
   .dnum { font-size: .95rem; }

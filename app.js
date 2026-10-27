@@ -32,7 +32,15 @@ const todayISO = () => iso(new Date());
 const TIMES = [];
 for (let h = 0; h < 24; h++) for (let m = 0; m < 60; m += 15) TIMES.push(`${pad(h)}:${pad(m)}`);
 const END_TIMES = TIMES.slice(1).concat('23:59');
-const PRESETS = [['Formiddag', '08:00', '12:00'], ['Eftermiddag', '12:00', '16:00'], ['Hele dagen', '08:00', '16:00']];
+const PRESETS = [['Formiddag', '08:00', '12:00'], ['Eftermiddag', '12:00', '16:00'], ['Aften', '16:00', '21:00'], ['Hele dagen', '08:00', '16:00']];
+
+// Tekster til tilmeldinger. Der kan kun være én gulvvagt ad gangen, men flere kan tilbyde sig hver sit tidsrum,
+// så tallet er antal personer der er tilgængelige som gulvvagt, ikke antal der står på gulvet samtidig.
+const gvText = n => n === 1 ? '1 tilgængelig gulvvagt' : `${n} tilgængelige gulvvagter`;
+const countsText = s => `${gvText(s.g)}, ${s.k} på kald`;
+const hourText = t => t === '23:59' ? '24' : t.endsWith(':00') ? t.slice(0, 2) : t; // 08:00 → 08, 23:59 → 24
+const rangeText = a => `${hourText(a.start)}–${hourText(a.end)}`;
+const initialsOf = name => name.trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
 
 const $ = sel => document.querySelector(sel);
 
@@ -224,10 +232,21 @@ function accountMenu() {
 /* ---------- Kalender ---------- */
 function viewCalendar() {
   const [f, t] = gridRange(S.month);
-  const byDay = {};
-  for (const a of S.avail) (byDay[a.day] = byDay[a.day] || []).push(a);
   const lanes = activeMembers();
+  const activeIds = new Set(lanes.map(m => m.id));
+  const byDay = {};
+  for (const a of S.avail) if (activeIds.has(a.member_id)) (byDay[a.day] = byDay[a.day] || []).push(a);
   const today = todayISO();
+
+  // Kort navn i cellerne: fornavn, og med efternavnsbogstav hvis to har samme fornavn.
+  const firstOf = n => n.trim().split(/\s+/)[0];
+  const sameFirst = {};
+  for (const m of lanes) { const k = firstOf(m.name).toLowerCase(); sameFirst[k] = (sameFirst[k] || 0) + 1; }
+  const shortName = m => {
+    if (!m) return '';
+    const parts = m.name.trim().split(/\s+/);
+    return sameFirst[parts[0].toLowerCase()] > 1 && parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : parts[0];
+  };
 
   const summarize = items => {
     const g = new Set(), k = new Set();
@@ -250,7 +269,7 @@ function viewCalendar() {
       const tdItems = byDay[today];
       if (!tdItems && !(today >= iso(f) && today <= iso(t))) return null;
       const s = summarize(tdItems || []);
-      return el('p', { class: 'today-line' }, 'I dag: ', el('b', { text: `${s.g} på gulvet` }), `, ${s.k} på kald`);
+      return el('p', { class: 'today-line' }, 'I dag: ', el('b', { text: gvText(s.g) }), `, ${s.k} på kald`);
     })());
 
   const legend = el('div', { class: 'legend', role: 'group', 'aria-label': 'Fremhæv en person' },
@@ -275,14 +294,25 @@ function viewCalendar() {
     const other = d.getMonth() !== S.month.getMonth();
     const picked = S.picked.has(key);
     const sel = !S.multi && S.selected === key;
-    const bundle = el('span', { class: 'bundle', 'aria-hidden': 'true' }, lanes.map(m => {
-      const mine = items.filter(a => a.member_id === m.id);
-      const st = mine.some(a => a.mode === 'gulvvagt') ? 'g' : mine.length ? 'k' : 'none';
-      const title = mine.length ? `${m.name}: ` + mine.map(a => `${MODE_LABEL[a.mode]} ${a.start}–${a.end}`).join(', ') : null;
-      return el('span', { class: `dot ${st}` + (S.focusMember === m.id ? ' is-focus' : ''), vars: { '--c': colorOf(m.id) }, title });
-    }));
+    // Hver tilmelding står som tekst i cellen: Gulvvagt først, så På kald, hver sorteret efter starttidspunkt.
+    const entries = items.slice().sort((a, b) =>
+      (a.mode === b.mode ? 0 : a.mode === 'gulvvagt' ? -1 : 1) || a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+    const sign = entries.length ? el('span', { class: 'sign', 'aria-hidden': 'true' }, entries.map(a => {
+      const m = memberById(a.member_id);
+      const kind = a.mode === 'gulvvagt' ? 'g' : 'k';
+      return el('span', {
+        class: `sg ${kind}` + (S.focusMember === a.member_id ? ' is-focus' : ''), vars: { '--c': colorOf(a.member_id) },
+        title: `${m ? m.name : ''}: ${MODE_LABEL[a.mode]} ${a.start}–${a.end}`,
+      },
+        el('i', { class: `dot ${kind}` }),
+        el('span', { class: 'sg-name', text: shortName(m) }),
+        el('span', { class: 'sg-ini', text: m ? initialsOf(m.name) : '' }),
+        el('span', { class: 'sg-time', text: rangeText(a) }));
+    })) : null;
     const nTasks = tasksOn(key).length;
-    const label = `${fmtLong(d)}, ` + (items.length ? `${sum.g} på gulvet, ${sum.k} på kald` : 'ingen tilmeldte')
+    const label = `${fmtLong(d)}, ` + (entries.length
+      ? `${countsText(sum)}: ` + entries.map(a => `${shortName(memberById(a.member_id))} ${MODE_LABEL[a.mode]} ${a.start}–${a.end}`).join(', ')
+      : 'ingen tilmeldte')
       + (nTasks ? `, ${nTasks} ${nTasks === 1 ? 'opgave' : 'opgaver'} i perioden` : '');
     return el('button', {
       type: 'button',
@@ -292,9 +322,8 @@ function viewCalendar() {
       onclick: () => onDay(key),
     },
       el('span', { class: 'cell-top' },
-        el('span', { class: 'dnum', text: d.getDate() === 1 ? `1. ${MONTH_SHORT[d.getMonth()]}` : String(d.getDate()) }),
-        items.length ? el('span', { class: 'cnt' }, sum.g ? [el('b', { text: sum.g }), ' gulv'] : null, sum.g && sum.k ? el('br') : null, sum.k ? [el('b', { text: sum.k }), ' kald'] : null) : null),
-      bundle,
+        el('span', { class: 'dnum', text: d.getDate() === 1 ? `1. ${MONTH_SHORT[d.getMonth()]}` : String(d.getDate()) })),
+      sign,
       hiddenN ? el('span', { class: 'more', 'aria-hidden': 'true', text: `+${hiddenN}` }) : null);
   };
 
@@ -308,11 +337,11 @@ function viewCalendar() {
       vars: { '--c': colorOf(x.assignee_id), '--cs': seg.a + 1, '--ce': seg.e + 2, '--lane': seg.lane },
       title: `${x.title}\n${name}, ${when}`,
       'aria-label': `Opgave: ${x.title}, ${name}, ${when}` + (x.priority === 'fast' ? `, ${PRIO_LABEL.fast}` : ''),
-      'data-fk': `pb-${x.id}-${wsKey}`,
+      'data-fk': `pb-${x.id}-${wsKey}`, 'data-task': x.id,
       onclick: () => taskDialog(x, x.assignee_id),
     },
       x.priority === 'fast' ? el('span', { class: 'pb-flag', 'aria-hidden': 'true' }) : null,
-      who ? el('span', { class: 'pb-who', text: who.name.split(' ')[0] }) : null,
+      who ? el('span', { class: 'pb-who', text: shortName(who) }) : null,
       el('span', { class: 'pb-title', text: x.title }));
   };
 
@@ -344,6 +373,16 @@ function viewCalendar() {
   const grid = el('div', { class: 'cal-grid' },
     el('div', { class: 'cal-head' }, DAY_SHORT.map(d => el('div', { class: 'cal-dow', text: d }))),
     weeks);
+  // En periode er én bjælke pr. uge. Peger man på én af dem (eller tabber til den), markeres alle ugers bjælker for samme opgave.
+  const highlight = (bar, on) => {
+    const id = bar.getAttribute('data-task');
+    grid.querySelectorAll('.pbar').forEach(b => { if (b.getAttribute('data-task') === id) b.classList.toggle('hl', on); });
+  };
+  const barOf = e => (e.target.closest ? e.target.closest('.pbar') : null);
+  grid.addEventListener('mouseover', e => { const b = barOf(e); if (b) highlight(b, true); });
+  grid.addEventListener('mouseout', e => { const b = barOf(e); if (b && !b.contains(e.relatedTarget)) highlight(b, false); });
+  grid.addEventListener('focusin', e => { const b = barOf(e); if (b) highlight(b, true); });
+  grid.addEventListener('focusout', e => { const b = barOf(e); if (b) highlight(b, false); });
   const left = el('div', { class: 'cal-main' }, toolbar, legend, grid);
   const wrap = el('div', { class: 'cal-wrap' + (S.focusMember ? ' focus' : '') }, left, dayPanel(byDay));
   const nodes = [wrap];
@@ -395,7 +434,7 @@ function dayPanel(byDay) {
   const k = new Set(items.filter(a => a.mode === 'kald').map(a => a.member_id)).size;
 
   panel.append(el('div', { class: 'panel-head' },
-    el('div', {}, el('h2', { text: fmtLong(d) }), el('p', { class: 'sum', text: items.length ? `${g} på gulvet, ${k} på kald` : 'Ingen har meldt sig på denne dag.' })),
+    el('div', {}, el('h2', { text: fmtLong(d) }), el('p', { class: 'sum', text: items.length ? countsText({ g, k }) : 'Ingen har meldt sig på denne dag.' })),
     el('button', { type: 'button', class: 'icon-btn panel-close', 'aria-label': 'Luk', text: '×', onclick: closeSheet })));
 
   const people = activeMembers().filter(m => items.some(a => a.member_id === m.id));
