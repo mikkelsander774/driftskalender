@@ -17,10 +17,11 @@ Fælles kalender og opgaveoverblik for driftsgruppen: hvem kan bidrage i driften
 - En opgave kan have en deadline (én dato) eller en periode (fra og til), eller ingen af delene. Aldrig begge dele på samme opgave.
 - Åbne opgaver med periode vises i kalenderen som bjælker i ansvarligs farve, og i dagspanelet for hver dag de dækker.
 - Kun administrator kan invitere, deaktivere og nulstille adgang.
+- **Drift** er en rolle med kun læseadgang: kalender, opgaver og medarbejderliste (navne og roller, uden e-mailadresser). Drift kan ikke tilmelde sig, oprette, rette eller afslutte noget og kan ikke være administrator. Det håndhæves i databasefunktionen, ikke kun i siden. Kun skift af egen adgangskode og log ud er tilladt. Drift indgår ikke som person i kalender, opgavekolonner eller tilmeldingsvalg.
 
 ## Drift
 
-- Ny medarbejder: fanen Medarbejdere, Inviter medarbejder, send linket (det gælder i 14 dage og kan bruges én gang).
+- Ny medarbejder: fanen Medarbejdere, Inviter medarbejder, send linket (det gælder i 14 dage og kan bruges én gang). Vælg rollen "Drift (kun læseadgang)" til dem, der kun skal kunne se.
 - Glemt adgangskode: Medarbejdere, Nyt invitationslink. Personen logges ud og vælger en ny adgangskode.
 - Ændringer på siden: ret filerne her og push til `main`. GitHub Pages opdaterer selv.
 - Skrifttyperne (Bricolage Grotesque og Atkinson Hyperlegible, begge under SIL Open Font License) ligger i `fonts/`, så siden ikke henter noget fra tredjepart.

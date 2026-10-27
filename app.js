@@ -8,7 +8,7 @@ const API_URL = 'https://cqhgtbyytkczalmqamck.supabase.co/functions/v1/driftskal
 // Fiberfarver (efter det internationale farvekodesystem for fiberkabler, uden rød som er forbeholdt advarsler).
 const STRANDS = ['#2467C9', '#E27A12', '#2F9E5B', '#8B5E3C', '#7A4DB8', '#5B7385',
                  '#D6538A', '#12A3A8', '#B58F00', '#3E4FA0', '#6E8F1B', '#8E3B6B'];
-const ROLES = { teamleder: 'Teamleder', tuk: 'TUK', problemmanager: 'ProblemManager' };
+const ROLES = { teamleder: 'Teamleder', tuk: 'TUK', problemmanager: 'ProblemManager', drift: 'Drift' };
 const MODE_LABEL = { gulvvagt: 'Gulvvagt', kald: 'På kald' };
 const PRIO_LABEL = { fast: 'Kan ikke aflyses/udsættes', fleksibel: 'Foretages ved tid / mulighed' };
 const VIEWS = ['kalender', 'opgaver', 'medarbejdere'];
@@ -108,7 +108,9 @@ const S = {
   range: null, sig: '',
 };
 const memberById = id => S.members.find(m => m.id === id);
-const activeMembers = () => S.members.filter(m => m.active);
+// Drift har kun læseadgang. De kan ikke skrive sig på eller have opgaver, så de indgår ikke som personer i kalender og opgaver.
+const isViewer = () => !!S.me && S.me.role === 'drift';
+const activeMembers = () => S.members.filter(m => m.active && m.role !== 'drift');
 const colorOf = id => S.colors[id] || STRANDS[0];
 
 function rankColors() {
@@ -184,7 +186,7 @@ function renderApp() {
   const active = document.activeElement;
   const fk = active && active.getAttribute ? active.getAttribute('data-fk') : null;
   const y = window.scrollY;
-  const view = S.view === 'medarbejdere' && !S.me.is_admin ? 'kalender' : S.view;
+  const view = S.view === 'medarbejdere' && !(S.me.is_admin || isViewer()) ? 'kalender' : S.view;
   S.view = view;
   document.title = `${{ kalender: 'Kalender', opgaver: 'Opgaver', medarbejdere: 'Medarbejdere' }[view]} · Driftskalender`;
   const content = view === 'kalender' ? viewCalendar() : view === 'opgaver' ? viewTasks() : viewMembers();
@@ -206,7 +208,7 @@ function go(view) {
 
 function topbar() {
   const tabs = [['kalender', 'Kalender'], ['opgaver', 'Opgaver']];
-  if (S.me.is_admin) tabs.push(['medarbejdere', 'Medarbejdere']);
+  if (S.me.is_admin || isViewer()) tabs.push(['medarbejdere', 'Medarbejdere']);
   return el('header', { class: 'topbar' },
     el('a', { class: 'brand', href: '#kalender', onclick: e => { e.preventDefault(); go('kalender'); } },
       mark(28), el('span', { class: 'brand-name', text: 'Driftskalender' })),
@@ -222,7 +224,7 @@ function accountMenu() {
   const details = el('details', { class: 'acct' },
     el('summary', { 'aria-label': 'Min konto' },
       el('span', { class: 'who', text: S.me.name }),
-      el('span', { class: 'role', text: (ROLES[S.me.role] || '') + (S.me.is_admin ? ', administrator' : '') })),
+      el('span', { class: 'role', text: (ROLES[S.me.role] || '') + (S.me.is_admin ? ', administrator' : '') + (isViewer() ? ', kun læseadgang' : '') })),
     el('div', { class: 'acct-menu' },
       el('button', { type: 'button', text: 'Skift adgangskode', onclick: () => { details.open = false; passwordDialog(); } }),
       el('button', { type: 'button', text: 'Log ud', onclick: logout })));
@@ -260,7 +262,7 @@ function viewCalendar() {
       el('button', { type: 'button', class: 'btn', 'aria-label': 'Næste måned', text: '›', onclick: () => changeMonth(1) }),
       el('button', { type: 'button', class: 'btn', text: 'I dag', onclick: () => { S.month = startOfMonth(new Date()); S.selected = today; S.form = newForm(); S.sheetOpen = true; changeMonth(0); } })),
     el('h1', { class: 'cal-title', text: `${MONTH_LONG[S.month.getMonth()]} ${S.month.getFullYear()}` }),
-    el('button', {
+    isViewer() ? null : el('button', {
       type: 'button', class: 'btn' + (S.multi ? ' primary' : ''), 'aria-pressed': S.multi ? 'true' : 'false',
       text: S.multi ? 'Færdig med at vælge' : 'Vælg flere dage',
       onclick: () => { S.multi = !S.multi; S.picked.clear(); S.sheetOpen = false; renderApp(); },
@@ -425,7 +427,7 @@ function newForm(memberId) {
 function dayPanel(byDay) {
   const panel = el('aside', { class: 'panel' + (S.sheetOpen && S.selected && !S.multi ? ' open' : ''), 'aria-label': 'Valgt dag' });
   if (!S.selected) {
-    panel.append(el('p', { class: 'panel-empty', text: 'Vælg en dag for at se, hvem der kan bidrage, og for at skrive dig på.' }));
+    panel.append(el('p', { class: 'panel-empty', text: isViewer() ? 'Vælg en dag for at se, hvem der kan bidrage.' : 'Vælg en dag for at se, hvem der kan bidrage, og for at skrive dig på.' }));
     return panel;
   }
   const d = parseISO(S.selected);
@@ -444,7 +446,7 @@ function dayPanel(byDay) {
       items.filter(a => a.member_id === m.id).map(a => el('div', { class: 'slot' },
         el('span', { class: 'time', text: `${a.start}–${a.end}` }),
         el('span', { class: 'badge' }, el('span', { class: 'dot ' + (a.mode === 'gulvvagt' ? 'g' : 'k'), vars: { '--c': colorOf(m.id) } }), MODE_LABEL[a.mode]),
-        (S.me.is_admin || a.member_id === S.me.id) ? el('span', { class: 'slot-actions' },
+        !isViewer() && (S.me.is_admin || a.member_id === S.me.id) ? el('span', { class: 'slot-actions' },
           el('button', { type: 'button', class: 'btn small ghost', text: 'Ret', 'data-fk': 'edit-' + a.id, onclick: () => editSlot(a) }),
           el('button', { type: 'button', class: 'btn small ghost', text: 'Fjern', 'data-fk': 'del-' + a.id, onclick: () => removeSlot(a) })) : null,
         a.note ? el('span', { class: 'note', text: a.note }) : null))))));
@@ -461,7 +463,7 @@ function dayPanel(byDay) {
           el('span', { class: 'dt-meta', text: `${who ? who.name : ''} · ${periodText(t)} · ${PRIO_LABEL[t.priority]}` }));
       })));
   }
-  panel.append(availForm());
+  if (!isViewer()) panel.append(availForm());
   return panel;
 }
 
@@ -588,7 +590,7 @@ function bulkDialog() {
 function viewTasks() {
   const me = S.me.id;
   let people = activeMembers().slice().sort((a, b) => (a.id === me ? -1 : 0) - (b.id === me ? -1 : 0));
-  if (S.onlyMine) people = people.filter(m => m.id === me);
+  if (S.onlyMine && !isViewer()) people = people.filter(m => m.id === me);
   const doneCount = S.tasks.filter(t => t.done).length;
   // Sorteret efter det tidspunkt opgaven først kræver noget: deadline, eller periodens start. Uden tid til sidst.
   const when = t => t.due_date || t.start_date || '9999';
@@ -597,7 +599,7 @@ function viewTasks() {
   const head = el('div', { class: 'page-head' },
     el('h1', { text: 'Opgaver' }),
     el('div', { class: 'tools' },
-      el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: S.onlyMine, 'data-fk': 'only-mine', onchange: e => { S.onlyMine = e.target.checked; renderApp(); } }), 'Kun mine'),
+      isViewer() ? null : el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: S.onlyMine, 'data-fk': 'only-mine', onchange: e => { S.onlyMine = e.target.checked; renderApp(); } }), 'Kun mine'),
       el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: S.showDone, 'data-fk': 'show-done', onchange: e => { S.showDone = e.target.checked; renderApp(); } }), `Vis udførte (${doneCount})`)));
 
   const cols = people.map(m => {
@@ -618,7 +620,7 @@ function viewTasks() {
       S.showDone && done.length ? el('section', { class: 'group', 'aria-label': 'Udførte opgaver' },
         el('h3', { class: 'group-h' }, 'Udført', el('span', { class: 'n', text: String(done.length) })),
         el('ul', { class: 'tasks' }, done.map(taskRow))) : null,
-      el('div', {}, el('button', { type: 'button', class: 'btn small', text: 'Tilføj opgave', 'data-fk': 'add-' + m.id, onclick: () => taskDialog(null, m.id) })));
+      isViewer() ? null : el('div', {}, el('button', { type: 'button', class: 'btn small', text: 'Tilføj opgave', 'data-fk': 'add-' + m.id, onclick: () => taskDialog(null, m.id) })));
   });
   return [head, cols.length ? el('div', { class: 'people' }, cols) : el('p', { class: 'loading', text: 'Ingen medarbejdere at vise.' })];
 }
@@ -658,7 +660,7 @@ function taskWhen(t) {
 
 function taskRow(t) {
   const w = taskWhen(t);
-  const box = el('input', { type: 'checkbox', checked: t.done, 'aria-label': `Markér "${t.title}" som udført`, 'data-fk': 'chk-' + t.id });
+  const box = el('input', { type: 'checkbox', checked: t.done, disabled: isViewer(), 'aria-label': isViewer() ? (t.done ? `"${t.title}" er udført` : `"${t.title}" er ikke udført`) : `Markér "${t.title}" som udført`, 'data-fk': 'chk-' + t.id });
   box.addEventListener('change', () => toggleTask(t, box.checked));
   return el('li', { class: `task ${t.priority}` + (t.done ? ' done' : '') },
     box,
@@ -671,6 +673,7 @@ function taskRow(t) {
 }
 
 async function toggleTask(t, done) {
+  if (isViewer()) return;
   const before = { done: t.done, done_at: t.done_at };
   t.done = done; t.done_at = done ? new Date().toISOString() : null;
   renderApp();
@@ -684,7 +687,28 @@ async function toggleTask(t, done) {
   reload();
 }
 
+// Skrivebeskyttet opgavevisning til Drift: samme oplysninger, ingen felter at rette i og ingen knapper der ændrer noget.
+function taskView(task) {
+  const who = memberById(task.assignee_id);
+  const w = taskWhen(task);
+  const fact = (label, value) => [el('dt', { text: label }), el('dd', { text: value })];
+  openDialog({
+    title: task.title,
+    build(body, dlg) {
+      body.append(
+        el('dl', { class: 'facts' },
+          fact('Prioritet', PRIO_LABEL[task.priority] || ''),
+          fact('Ansvarlig', who ? who.name : ''),
+          w ? fact('Tid', w.text) : null,
+          fact('Status', task.done ? 'Udført' + (task.done_at ? ' ' + fmtShort(new Date(task.done_at)) : '') : 'Ikke udført'),
+          task.details ? fact('Beskrivelse', task.details) : null),
+        el('div', { class: 'dlg-actions' }, el('button', { type: 'button', class: 'btn primary', text: 'Luk', onclick: () => dlg.close() })));
+    },
+  });
+}
+
 function taskDialog(task, assigneeId) {
+  if (isViewer()) { if (task) taskView(task); return; }
   // Tid er valgfri: ingen, en deadline eller en periode (fra og til), aldrig begge.
   const st = task
     ? { title: task.title, details: task.details || '', priority: task.priority, assignee: task.assignee_id,
@@ -771,8 +795,19 @@ function taskDialog(task, assigneeId) {
   });
 }
 
-/* ---------- Medarbejdere (kun administrator) ---------- */
+/* ---------- Medarbejdere (administrator ændrer, Drift kan kun se) ---------- */
+function viewMembersReadOnly() {
+  const people = S.members.filter(m => m.active);
+  const rows = people.map(m => el('li', { class: 'mrow ro' },
+    el('div', { class: 'm-name', vars: { '--c': colorOf(m.id) } }, el('span', { class: 'sw' }), el('b', { text: m.name + (m.id === S.me.id ? ' (dig)' : '') })),
+    el('div', { class: 'm-status', text: ROLES[m.role] || '' })));
+  return [
+    el('div', { class: 'page-head' }, el('h1', { text: 'Medarbejdere' })),
+    rows.length ? el('ul', { class: 'mlist' }, rows) : el('p', { class: 'loading', text: 'Ingen medarbejdere at vise.' })];
+}
+
 function viewMembers() {
+  if (!S.me.is_admin) return viewMembersReadOnly();
   const head = el('div', { class: 'page-head' },
     el('h1', { text: 'Medarbejdere' }),
     el('div', { class: 'tools' }, el('button', { type: 'button', class: 'btn primary', text: 'Inviter medarbejder', 'data-fk': 'invite', onclick: inviteDialog })));
@@ -785,11 +820,11 @@ function viewMembers() {
     const roleSel = el('select', { 'aria-label': `Rolle for ${m.name}` }, Object.entries(ROLES).map(([v, l]) => el('option', { value: v, text: l })));
     roleSel.value = m.role;
     roleSel.addEventListener('change', async () => { const r = await api('member_update', { id: m.id, role: roleSel.value }); toast(r.ok ? 'Rolle ændret' : r.error, !r.ok); reload(); });
-    const adm = el('input', { type: 'checkbox', checked: m.is_admin, disabled: self });
+    const adm = el('input', { type: 'checkbox', checked: m.is_admin, disabled: self || m.role === 'drift' });
     adm.addEventListener('change', async () => { const r = await api('member_update', { id: m.id, is_admin: adm.checked }); toast(r.ok ? 'Gemt' : r.error, !r.ok); reload(); });
     return el('li', { class: 'mrow' + (m.active ? '' : ' off') },
       el('div', { class: 'm-name', vars: { '--c': colorOf(m.id) } }, el('span', { class: 'sw' }),
-        el('div', {}, el('b', { text: m.name + (self ? ' (dig)' : '') }), el('small', { text: m.email || 'Ikke oprettet endnu' }))),
+        el('div', {}, el('b', { text: m.name + (self ? ' (dig)' : '') }), el('small', { text: (m.email || 'Ikke oprettet endnu') + (m.role === 'drift' ? ' · kun læseadgang' : '') }))),
       el('div', { class: 'm-status', text: status }),
       el('div', { class: 'm-actions' },
         roleSel,
@@ -812,13 +847,22 @@ function inviteDialog() {
     build(body, dlg) {
       const err = el('p', { class: 'err', role: 'alert' });
       const submit = el('button', { type: 'submit', class: 'btn primary', text: 'Opret invitation' });
-      const role = el('select', { id: 'inv-role' }, Object.entries(ROLES).map(([v, l]) => el('option', { value: v, text: l })));
-      role.addEventListener('change', () => { st.role = role.value; });
+      const role = el('select', { id: 'inv-role' }, Object.entries(ROLES).map(([v, l]) => el('option', { value: v, text: v === 'drift' ? 'Drift (kun læseadgang)' : l })));
+      const adminBox = el('input', { type: 'checkbox', id: 'inv-admin', onchange: e => { st.admin = e.target.checked; } });
+      const roleHint = el('span', { class: 'hint', id: 'inv-role-hint', text: '' });
+      role.addEventListener('change', () => {
+        st.role = role.value;
+        // Drift kan se alt, men ikke ændre noget, og kan derfor ikke være administrator.
+        const viewer = st.role === 'drift';
+        if (viewer) { st.admin = false; adminBox.checked = false; }
+        adminBox.disabled = viewer;
+        roleHint.textContent = viewer ? 'Kan se kalender, opgaver og medarbejdere, men ikke ændre noget.' : '';
+      });
       const form = el('form', { class: 'dlg-body', style: 'padding:0', novalidate: true },
         el('div', { class: 'field' }, el('label', { for: 'inv-name', text: 'Navn' }), el('input', { type: 'text', id: 'inv-name', maxlength: 80, autocomplete: 'off', oninput: e => { st.name = e.target.value; } })),
         el('div', { class: 'field' }, el('label', { for: 'inv-email', text: 'E-mail' }), el('input', { type: 'email', id: 'inv-email', autocomplete: 'off', oninput: e => { st.email = e.target.value; } })),
-        el('div', { class: 'field' }, el('label', { for: 'inv-role', text: 'Rolle' }), role),
-        el('label', { class: 'check' }, el('input', { type: 'checkbox', onchange: e => { st.admin = e.target.checked; } }), 'Giv administratorrettigheder'),
+        el('div', { class: 'field' }, el('label', { for: 'inv-role', text: 'Rolle' }), role, roleHint),
+        el('label', { class: 'check' }, adminBox, 'Giv administratorrettigheder'),
         err,
         el('div', { class: 'dlg-actions' }, el('button', { type: 'button', class: 'btn', text: 'Annuller', onclick: () => dlg.close() }), submit));
       form.addEventListener('submit', async ev => {
@@ -829,7 +873,7 @@ function inviteDialog() {
         if (!r.ok) { err.textContent = r.error || 'Det lykkedes ikke. Prøv igen.'; return; }
         dlg.close();
         await reload();
-        linkDialog(st.name.trim(), st.email.trim(), r.invite);
+        linkDialog(st.name.trim(), st.email.trim(), r.invite, st.role);
       });
       body.append(form);
       setTimeout(() => $('#inv-name') && $('#inv-name').focus(), 0);
@@ -849,7 +893,7 @@ function reinvite(m) {
         if (!r.ok) { go1.disabled = false; err.textContent = r.error || 'Det lykkedes ikke. Prøv igen.'; return; }
         dlg.close();
         await reload();
-        linkDialog(m.name, m.email || '', r.invite);
+        linkDialog(m.name, m.email || '', r.invite, m.role);
       });
       body.append(
         el('p', { text: `${m.name} bliver logget ud, og den nuværende adgangskode virker ikke længere. Personen vælger en ny adgangskode via det nye link. Brug det også, hvis en adgangskode er glemt.` }),
@@ -859,11 +903,14 @@ function reinvite(m) {
   });
 }
 
-function linkDialog(name, email, token) {
+function linkDialog(name, email, token, role) {
   const link = inviteLink(token);
   const first = (name || '').split(' ')[0] || 'du';
   const subject = 'Invitation til Driftskalender';
-  const text = `Hej ${first},\n\nDu er inviteret til Driftskalender, hvor vi skriver os på driften og holder styr på opgaverne. Åbn linket for at oprette din adgang (gælder i 14 dage):\n\n${link}\n\nVenlig hilsen\n${S.me.name}`;
+  const what = role === 'drift'
+    ? 'hvor du kan se, hvem der kan bidrage i driften, og hvilke opgaver der ligger. Du har læseadgang og kan ikke ændre noget.'
+    : 'hvor vi skriver os på driften og holder styr på opgaverne.';
+  const text = `Hej ${first},\n\nDu er inviteret til Driftskalender, ${what} Åbn linket for at oprette din adgang (gælder i 14 dage):\n\n${link}\n\nVenlig hilsen\n${S.me.name}`;
   openDialog({
     title: 'Send linket til ' + (name || 'medarbejderen'),
     build(body, dlg) {
@@ -1017,7 +1064,7 @@ async function startClaim(invite) {
   });
   gate([
     el('h1', { text: info.bootstrap ? 'Opret administrator' : `Velkommen, ${(info.name || '').split(' ')[0]}` }),
-    el('p', { class: 'lede', text: info.bootstrap ? 'Du bliver den første administrator og kan derefter invitere de andre.' : 'Vælg en adgangskode for at oprette din adgang.' }),
+    el('p', { class: 'lede', text: info.bootstrap ? 'Du bliver den første administrator og kan derefter invitere de andre.' : info.role === 'drift' ? 'Du får læseadgang og kan se kalender, opgaver og medarbejdere. Vælg en adgangskode for at oprette din adgang.' : 'Vælg en adgangskode for at oprette din adgang.' }),
     form]);
   setTimeout(() => { const n = $('#cl-name') || $('#cl-pw'); if (n) n.focus(); }, 0);
 }

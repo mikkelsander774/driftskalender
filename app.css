@@ -380,6 +380,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
 }
 .mrow:first-child { border-top: 0; }
+.mrow.ro { grid-template-columns: minmax(0, 1fr) auto; }
 .mrow.off { background: var(--wash); color: var(--ink-3); }
 .m-name { display: flex; align-items: center; gap: .6rem; min-width: 0; }
 .m-name .sw { width: .9rem; height: .9rem; border-radius: 50%; background: var(--c); flex: none; }
@@ -392,6 +393,11 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
   .mrow { grid-template-columns: 1fr; }
   .m-actions { justify-content: flex-start; }
 }
+
+/* ---------- Skrivebeskyttet opgavevisning (Drift) ---------- */
+.facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .5rem 1.25rem; margin: 0; }
+.facts dt { font-weight: 700; color: var(--ink-2); }
+.facts dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
 
 /* ---------- Dialog ---------- */
 dialog.dlg {
