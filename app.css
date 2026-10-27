@@ -244,6 +244,50 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 }
 .key .bar-sample { width: 1.4rem; height: .7rem; border-radius: 3px; border-left: 4px solid var(--ink-3); background: var(--line-2); }
 
+/* Særligt ønske om støtte fra driften. Farven viser om gulvvagten er dækket: grøn dækket, gul delvist, rød mangler.
+   Teksten står der altid også, så det ikke afhænger af farven alene. */
+.req, .rq { --rc: #6a58a0; --rt: #4d3d82; }
+.req.covered, .rq.covered { --rc: #26804a; --rt: #1b5e37; }
+.req.partial, .rq.partial { --rc: #c98a00; --rt: #7a4f00; }
+.req.missing, .rq.missing { --rc: #b8341c; --rt: #9a2814; }
+.req-lines { display: grid; grid-template-columns: minmax(0, 1fr); gap: .2rem; }
+.req {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0; min-width: 0; padding: .12rem .35rem .15rem; border-radius: 4px;
+  border: 1.5px solid var(--rc); background: #fff; background: color-mix(in srgb, var(--rc) 12%, #fff);
+  color: var(--rt); font-size: .75rem; line-height: 1.25; font-weight: 700;
+}
+.req-lbl { max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Tidsrummet står under teksten, så der er plads til begge i en smal celle */
+.req-time { font-family: var(--f-display); font-weight: 500; font-size: .72rem; line-height: 1.2; white-space: nowrap; }
+.req-short { display: none; }
+.key.req-keys { flex-wrap: wrap; }
+.req-key { flex: none; margin-left: 0; font-size: .82rem; }
+.req-key .req-lbl { overflow: visible; }
+.cell.has-req::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--rs, transparent); pointer-events: none;
+}
+.cell.req-covered { --rs: #26804a; }
+.cell.req-partial { --rs: #c98a00; }
+.cell.req-missing { --rs: #b8341c; }
+.cell.req-info { --rs: #6a58a0; }
+.cell.other .req-lines { opacity: .55; }
+.req-summary { margin: -.2rem 0 .9rem; color: var(--ink-2); }
+.req-summary .rs { color: var(--rt, var(--ink)); }
+.rs.covered { --rt: #1b5e37; } .rs.partial { --rt: #7a4f00; } .rs.missing { --rt: #9a2814; } .rs.info { --rt: #4d3d82; }
+
+.reqs { display: grid; gap: .6rem; }
+.reqs h3 { font: 700 1.05rem/1.2 var(--f-display); }
+.rq {
+  display: grid; gap: .3rem; padding: .55rem .7rem .6rem .75rem; border-left: 5px solid var(--rc); border-radius: 0 6px 6px 0;
+  background: var(--wash); background: color-mix(in srgb, var(--rc) 10%, #fff);
+}
+.rq-head { display: flex; flex-wrap: wrap; gap: .1rem .7rem; align-items: baseline; justify-content: space-between; }
+.rq-what { font-weight: 700; }
+.rq-state { font-weight: 700; color: var(--rt); font-size: .92rem; }
+.rq-note, .rq-cover { font-size: .92rem; color: var(--ink-2); overflow-wrap: anywhere; }
+.rq-actions { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .15rem; }
+.req-add { padding-top: .25rem; }
+
 .day-tasks { display: grid; gap: .5rem; padding-top: 1rem; border-top: 1px solid var(--line-2); }
 .day-tasks h3 { font: 700 1.05rem/1.2 var(--f-display); }
 .dt {
@@ -322,6 +366,10 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
   .sg .dot { --dot: 7px; }
   .sg-name, .sg-time { display: none; }
   .sg-ini { display: inline; font-weight: 700; }
+  /* Smal skærm: ønsker om støtte som lille mærke med "GV" (eller "!"), farven viser status */
+  .cell .req { flex-direction: row; align-items: center; justify-content: center; padding: 0 .15rem; border-width: 1px; font-size: .68rem; }
+  .cell .req-lbl, .cell .req-time { display: none; }
+  .cell .req-short { display: inline; }
   :root { --dot: 8px; }
   .dot.k { border-width: 2px; }
   .dnum { font-size: .95rem; }
@@ -367,7 +415,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 .task-meta { display: flex; flex-wrap: wrap; gap: .1rem .75rem; font-size: .88rem; color: var(--ink-3); }
 .task-meta .due.late { color: var(--danger); font-weight: 700; }
 .time-box:empty { display: none; }
-.time-box { margin-top: .25rem; }
+.time-box { margin-top: .25rem; display: grid; gap: .5rem; }
+.time-box > .lbl { font-weight: 700; font-size: .92rem; color: var(--ink-2); }
 .task-details { font-size: .92rem; color: var(--ink-2); overflow-wrap: anywhere; white-space: pre-line; }
 .task.done .task-title { text-decoration: line-through; color: var(--ink-3); }
 .task.done .task-title::before { background: var(--line); }

@@ -16,6 +16,7 @@ Fælles kalender og opgaveoverblik for driftsgruppen: hvem kan bidrage i driften
 - Alle kan tilføje, rette, afslutte og slette opgaver for alle.
 - En opgave kan have en deadline (én dato) eller en periode (fra og til), eller ingen af delene. Aldrig begge dele på samme opgave.
 - Åbne opgaver med periode vises i kalenderen som bjælker i ansvarligs farve, og i dagspanelet for hver dag de dækker.
+- **Særligt ønske om støtte fra driften** markeres på en dato i kalenderen: Gulvvagt ønskes (med tidsrum) eller en anden tekst. Alle undtagen Drift kan tilføje, rette og slette dem fra dagspanelet. Om en gulvvagt er dækket beregnes automatisk ud fra de gulvvagt-tilmeldinger, der ligger i tidsrummet: grøn = dækket, gul = delvist (hullet vises), rød = mangler. At stå på kald dækker ikke ønsket.
 - Kun administrator kan invitere, deaktivere og nulstille adgang.
 - **Drift** er en rolle med kun læseadgang: kalender, opgaver og medarbejderliste (navne og roller, uden e-mailadresser). Drift kan ikke tilmelde sig, oprette, rette eller afslutte noget og kan ikke være administrator. Det håndhæves i databasefunktionen, ikke kun i siden. Kun skift af egen adgangskode og log ud er tilladt. Drift indgår ikke som person i kalender, opgavekolonner eller tilmeldingsvalg.
 
