@@ -15,6 +15,7 @@ Fælles kalender og opgaveoverblik for driftsgruppen: hvem kan bidrage i driften
 - Man kan kun rette sin egen tilgængelighed. Administrator kan rette alles.
 - Alle kan tilføje, rette, afslutte og slette opgaver for alle.
 - En opgave kan have en deadline (én dato) eller en periode (fra og til), eller ingen af delene. Aldrig begge dele på samme opgave.
+- Åbne opgaver med periode vises i kalenderen som bjælker i ansvarligs farve, og i dagspanelet for hver dag de dækker.
 - Kun administrator kan invitere, deaktivere og nulstille adgang.
 
 ## Drift

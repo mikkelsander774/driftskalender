@@ -260,11 +260,15 @@ function viewCalendar() {
       onclick: () => { S.focusMember = S.focusMember === m.id ? null : m.id; renderApp(); },
     }, el('span', { class: 'sw' }), m.name)),
     el('span', { class: 'key' }, el('span', { class: 'dot g' }), 'Gulvvagt'),
-    el('span', { class: 'key' }, el('span', { class: 'dot k' }), 'På kald'));
+    el('span', { class: 'key' }, el('span', { class: 'dot k' }), 'På kald'),
+    el('span', { class: 'key' }, el('span', { class: 'bar-sample', 'aria-hidden': 'true' }), 'Opgave med periode'));
 
-  const cells = [];
-  DAY_SHORT.forEach(d => cells.push(el('div', { class: 'cal-dow', text: d })));
-  for (let d = f; d <= t; d = addDays(d, 1)) {
+  // Opgaver med periode (fra og til) tegnes som bjælker hen over dagene, i spor så de ikke dækker hinanden.
+  const MAX_LANES = 4;
+  const ptasks = periodTasks();
+  const tasksOn = key => ptasks.filter(x => x.start_date <= key && x.end_date >= key);
+
+  const dayCell = (d, col, hiddenN) => {
     const key = iso(d);
     const items = byDay[key] || [];
     const sum = summarize(items);
@@ -277,20 +281,70 @@ function viewCalendar() {
       const title = mine.length ? `${m.name}: ` + mine.map(a => `${MODE_LABEL[a.mode]} ${a.start}–${a.end}`).join(', ') : null;
       return el('span', { class: `dot ${st}` + (S.focusMember === m.id ? ' is-focus' : ''), vars: { '--c': colorOf(m.id) }, title });
     }));
-    const label = `${fmtLong(d)}, ` + (items.length ? `${sum.g} på gulvet, ${sum.k} på kald` : 'ingen tilmeldte');
-    cells.push(el('button', {
+    const nTasks = tasksOn(key).length;
+    const label = `${fmtLong(d)}, ` + (items.length ? `${sum.g} på gulvet, ${sum.k} på kald` : 'ingen tilmeldte')
+      + (nTasks ? `, ${nTasks} ${nTasks === 1 ? 'opgave' : 'opgaver'} i perioden` : '');
+    return el('button', {
       type: 'button',
       class: 'cell' + (other ? ' other' : '') + (dow(d) >= 5 ? ' wknd' : '') + (key === today ? ' today' : '') + (sel ? ' sel' : '') + (picked ? ' picked' : ''),
       'aria-label': label, 'aria-pressed': (S.multi ? picked : sel) ? 'true' : 'false', 'data-fk': 'd-' + key,
+      vars: { '--col': col + 1 },
       onclick: () => onDay(key),
     },
       el('span', { class: 'cell-top' },
         el('span', { class: 'dnum', text: d.getDate() === 1 ? `1. ${MONTH_SHORT[d.getMonth()]}` : String(d.getDate()) }),
         items.length ? el('span', { class: 'cnt' }, sum.g ? [el('b', { text: sum.g }), ' gulv'] : null, sum.g && sum.k ? el('br') : null, sum.k ? [el('b', { text: sum.k }), ' kald'] : null) : null),
-      bundle));
+      bundle,
+      hiddenN ? el('span', { class: 'more', 'aria-hidden': 'true', text: `+${hiddenN}` }) : null);
+  };
+
+  const periodBar = (seg, wsKey) => {
+    const x = seg.t, who = memberById(x.assignee_id);
+    const name = who ? who.name : '';
+    const when = periodText(x);
+    return el('button', {
+      type: 'button',
+      class: 'pbar' + (x.priority === 'fast' ? ' fast' : '') + (S.focusMember === x.assignee_id ? ' is-focus' : '') + (seg.contL ? ' cont-l' : '') + (seg.contR ? ' cont-r' : ''),
+      vars: { '--c': colorOf(x.assignee_id), '--cs': seg.a + 1, '--ce': seg.e + 2, '--lane': seg.lane },
+      title: `${x.title}\n${name}, ${when}`,
+      'aria-label': `Opgave: ${x.title}, ${name}, ${when}` + (x.priority === 'fast' ? `, ${PRIO_LABEL.fast}` : ''),
+      'data-fk': `pb-${x.id}-${wsKey}`,
+      onclick: () => taskDialog(x, x.assignee_id),
+    },
+      x.priority === 'fast' ? el('span', { class: 'pb-flag', 'aria-hidden': 'true' }) : null,
+      who ? el('span', { class: 'pb-who', text: who.name.split(' ')[0] }) : null,
+      el('span', { class: 'pb-title', text: x.title }));
+  };
+
+  const weeks = [];
+  for (let ws = f; ws <= t; ws = addDays(ws, 7)) {
+    const wsKey = iso(ws), weKey = iso(addDays(ws, 6));
+    const segs = ptasks.filter(x => x.start_date <= weKey && x.end_date >= wsKey).map(x => ({
+      t: x, lane: 0,
+      a: x.start_date < wsKey ? 0 : dow(parseISO(x.start_date)),
+      e: x.end_date > weKey ? 6 : dow(parseISO(x.end_date)),
+      contL: x.start_date < wsKey, contR: x.end_date > weKey,
+    }));
+    const laneEnd = []; // sidste kolonne der er optaget i hvert spor
+    for (const s of segs) {
+      let l = laneEnd.findIndex(end => end < s.a);
+      if (l === -1) { l = laneEnd.length; laneEnd.push(-1); }
+      laneEnd[l] = s.e; s.lane = l;
+    }
+    const shown = segs.filter(s => s.lane < MAX_LANES);
+    const hidden = segs.filter(s => s.lane >= MAX_LANES);
+    const hiddenByCol = [0, 0, 0, 0, 0, 0, 0];
+    for (const s of hidden) for (let c = s.a; c <= s.e; c++) hiddenByCol[c]++;
+    const bars = Math.min(MAX_LANES, laneEnd.length);
+    weeks.push(el('div', { class: 'cal-week', vars: { '--bars': bars, '--lanes': bars + (hidden.length ? 0.7 : 0) } },
+      [0, 1, 2, 3, 4, 5, 6].map(i => dayCell(addDays(ws, i), i, hiddenByCol[i])),
+      shown.map(s => periodBar(s, wsKey))));
   }
 
-  const left = el('div', { class: 'cal-main' }, toolbar, legend, el('div', { class: 'cal-grid' }, cells));
+  const grid = el('div', { class: 'cal-grid' },
+    el('div', { class: 'cal-head' }, DAY_SHORT.map(d => el('div', { class: 'cal-dow', text: d }))),
+    weeks);
+  const left = el('div', { class: 'cal-main' }, toolbar, legend, grid);
   const wrap = el('div', { class: 'cal-wrap' + (S.focusMember ? ' focus' : '') }, left, dayPanel(byDay));
   const nodes = [wrap];
   if (S.sheetOpen && S.selected && !S.multi) nodes.push(el('div', { class: 'sheet-back', onclick: closeSheet }));
@@ -355,6 +409,18 @@ function dayPanel(byDay) {
           el('button', { type: 'button', class: 'btn small ghost', text: 'Ret', 'data-fk': 'edit-' + a.id, onclick: () => editSlot(a) }),
           el('button', { type: 'button', class: 'btn small ghost', text: 'Fjern', 'data-fk': 'del-' + a.id, onclick: () => removeSlot(a) })) : null,
         a.note ? el('span', { class: 'note', text: a.note }) : null))))));
+  }
+  const dayTasks = periodTasks().filter(t => t.start_date <= S.selected && t.end_date >= S.selected);
+  if (dayTasks.length) {
+    panel.append(el('div', { class: 'day-tasks' },
+      el('h3', { text: dayTasks.length === 1 ? 'Opgave i perioden' : 'Opgaver i perioden' }),
+      dayTasks.map(t => {
+        const who = memberById(t.assignee_id);
+        return el('button', { type: 'button', class: 'dt' + (t.priority === 'fast' ? ' fast' : ''), vars: { '--c': colorOf(t.assignee_id) },
+          'data-fk': 'dt-' + t.id, onclick: () => taskDialog(t, t.assignee_id) },
+          el('span', { class: 'dt-title', text: t.title }),
+          el('span', { class: 'dt-meta', text: `${who ? who.name : ''} · ${periodText(t)} · ${PRIO_LABEL[t.priority]}` }));
+      })));
   }
   panel.append(availForm());
   return panel;
@@ -524,11 +590,22 @@ const fmtTaskDate = s => {
   return d.getFullYear() === new Date().getFullYear() ? fmtShort(d) : `${fmtShort(d)} ${d.getFullYear()}`;
 };
 
+const periodText = t => t.start_date === t.end_date ? fmtTaskDate(t.start_date) : `${fmtTaskDate(t.start_date)} – ${fmtTaskDate(t.end_date)}`;
+
+// Åbne opgaver med periode hos aktive medarbejdere: dem der tegnes som bjælker i kalenderen og vises i dagspanelet.
+function periodTasks() {
+  const active = new Set(activeMembers().map(m => m.id));
+  return S.tasks
+    .filter(t => t.start_date && t.end_date && !t.done && active.has(t.assignee_id))
+    .sort((a, b) => a.start_date < b.start_date ? -1 : a.start_date > b.start_date ? 1
+      : a.end_date > b.end_date ? -1 : a.end_date < b.end_date ? 1 : (a.created_at < b.created_at ? -1 : 1));
+}
+
 // Opgavens tid som tekst: enten en deadline eller en periode (fra og til). Begge er valgfri.
 function taskWhen(t) {
   const today = todayISO();
   if (t.start_date && t.end_date) {
-    const range = t.start_date === t.end_date ? fmtTaskDate(t.start_date) : `${fmtTaskDate(t.start_date)} – ${fmtTaskDate(t.end_date)}`;
+    const range = periodText(t);
     const late = !t.done && t.end_date < today;
     const now = !t.done && t.start_date <= today && today <= t.end_date;
     return { late, text: (late ? 'Overskredet: ' : 'Periode ') + range + (now ? ' (i gang)' : '') };
