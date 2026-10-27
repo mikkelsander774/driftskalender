@@ -72,6 +72,7 @@ button { cursor: pointer; }
 .btn:hover { border-color: var(--ink-3); }
 .btn.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
 .btn.primary:hover { background: #22364a; }
+a.btn { text-decoration: none; }
 .btn.danger { color: var(--danger); border-color: #e5b4aa; }
 .btn.danger.armed { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn.small { min-height: 2rem; padding: .2rem .6rem; font-size: .9rem; }
@@ -99,6 +100,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 
 /* Todelt valg (Gulvvagt / På kald, prioritet) */
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: .4rem; }
+.seg.seg-wrap { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .seg-opt { position: relative; }
 .seg-opt input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
 .seg-opt span {
@@ -242,7 +244,6 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
   position: absolute; right: .4rem; bottom: calc(.25rem + var(--bars, 0) * var(--bar-step));
   font-size: .75rem; font-weight: 700; color: var(--ink-2); pointer-events: none;
 }
-.key .bar-sample { width: 1.4rem; height: .7rem; border-radius: 3px; border-left: 4px solid var(--ink-3); background: var(--line-2); }
 
 /* Særligt ønske om støtte fra driften. Farven viser om gulvvagten er dækket: grøn dækket, gul delvist, rød mangler.
    Teksten står der altid også, så det ikke afhænger af farven alene. */
@@ -286,7 +287,19 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 .rq-state { font-weight: 700; color: var(--rt); font-size: .92rem; }
 .rq-note, .rq-cover { font-size: .92rem; color: var(--ink-2); overflow-wrap: anywhere; }
 .rq-actions { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .15rem; }
+.rq-by { font-size: .85rem; color: var(--ink-3); }
 .req-add { padding-top: .25rem; }
+.time-pick { display: grid; gap: .5rem; margin-top: .4rem; }
+.time-pick:empty { display: none; }
+.groups { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: .4rem; }
+.groups legend { padding: 0; margin-bottom: .3rem; font-weight: 700; font-size: .92rem; color: var(--ink-2); }
+.group-row { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; }
+.groups .hint { font-size: .88rem; color: var(--ink-3); }
+.notice-to { overflow-wrap: anywhere; }
+.mailbox {
+  white-space: pre-wrap; overflow-wrap: anywhere; background: var(--wash); border: 1px solid var(--line-2); border-radius: 8px;
+  padding: .75rem .85rem; font-size: .92rem; max-height: 15rem; overflow: auto; margin: .25rem 0 .5rem;
+}
 
 .day-tasks { display: grid; gap: .5rem; padding-top: 1rem; border-top: 1px solid var(--line-2); }
 .day-tasks h3 { font: 700 1.05rem/1.2 var(--f-display); }
