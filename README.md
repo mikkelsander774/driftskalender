@@ -13,7 +13,7 @@ Fælles kalender og opgaveoverblik for driftsgruppen: hvem kan bidrage i driften
 
 - Alle inviterede kan se alles tilgængelighed og alle opgaver.
 - Man kan kun rette sin egen tilgængelighed. Administrator kan rette alles.
-- Alle kan tilføje, rette, afslutte og slette opgaver for alle.
+- Alle kan tilføje, rette, afslutte og slette opgaver for alle. Opgaver ligger kun hos TUK'er og ProblemManager: teamledere vises ikke under Opgaver og kan ikke vælges som ansvarlig (det håndhæves i databasefunktionen). En TUK eller ProblemManager med åbne opgaver kan ikke skifte til teamleder, før opgaverne er flyttet.
 - En opgave kan have en deadline (én dato) eller en periode (fra og til), eller ingen af delene. Aldrig begge dele på samme opgave.
 - Åbne opgaver med periode vises i kalenderen som bjælker i ansvarligs farve, og i dagspanelet for hver dag de dækker.
 - **Ønsker om støtte fra driften** markeres på en dato i kalenderen. Særligt ønske om støtte er Gulvvagt og Stafet (begge med tidsrum; Stafet foreslår aftenen 16-21). Øvrigt ønske om støtte (lilla) er enten På kald (med tidsrum) eller Administrative opgaver (tidsrum valgfrit, tekst påkrævet). Alle kan oprette dem fra dagspanelet, også Drift. Alle andre end Drift kan rette og slette alle ønsker. Drift kan kun rette og slette sine egne.

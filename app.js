@@ -161,6 +161,10 @@ const memberById = id => S.members.find(m => m.id === id);
 // Drift har kun læseadgang. De kan ikke skrive sig på eller have opgaver, så de indgår ikke som personer i kalender og opgaver.
 const isViewer = () => !!S.me && S.me.role === 'drift';
 const activeMembers = () => S.members.filter(m => m.active && m.role !== 'drift');
+// Opgaver ligger kun hos TUK'er og ProblemManager. Teamledere vises ikke under Opgaver og kan ikke være ansvarlige.
+const TASK_ROLES = ['tuk', 'problemmanager'];
+const taskMembers = () => activeMembers().filter(m => TASK_ROLES.includes(m.role));
+const meHasTasks = () => !!S.me && TASK_ROLES.includes(S.me.role);
 const colorOf = id => S.colors[id] || STRANDS[0];
 
 function rankColors() {
@@ -906,8 +910,8 @@ function bulkDialog() {
 /* ---------- Opgaver ---------- */
 function viewTasks() {
   const me = S.me.id;
-  let people = activeMembers().slice().sort((a, b) => (a.id === me ? -1 : 0) - (b.id === me ? -1 : 0));
-  if (S.onlyMine && !isViewer()) people = people.filter(m => m.id === me);
+  let people = taskMembers().sort((a, b) => (a.id === me ? -1 : 0) - (b.id === me ? -1 : 0));
+  if (S.onlyMine && meHasTasks()) people = people.filter(m => m.id === me);
   const doneCount = S.tasks.filter(t => t.done).length;
   // Sorteret efter det tidspunkt opgaven først kræver noget: deadline, eller periodens start. Uden tid til sidst.
   const when = t => t.due_date || t.start_date || '9999';
@@ -916,7 +920,7 @@ function viewTasks() {
   const head = el('div', { class: 'page-head' },
     el('h1', { text: 'Opgaver' }),
     el('div', { class: 'tools' },
-      isViewer() ? null : el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: S.onlyMine, 'data-fk': 'only-mine', onchange: e => { S.onlyMine = e.target.checked; renderApp(); } }), 'Kun mine'),
+      !meHasTasks() ? null : el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: S.onlyMine, 'data-fk': 'only-mine', onchange: e => { S.onlyMine = e.target.checked; renderApp(); } }), 'Kun mine'),
       el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: S.showDone, 'data-fk': 'show-done', onchange: e => { S.showDone = e.target.checked; renderApp(); } }), `Vis udførte (${doneCount})`)));
 
   const cols = people.map(m => {
@@ -1037,7 +1041,7 @@ function taskDialog(task, assigneeId) {
     build(body, dlg) {
       const err = el('p', { class: 'err', role: 'alert' });
       const submit = el('button', { type: 'submit', class: 'btn primary', text: task ? 'Gem' : 'Tilføj opgave' });
-      const who = el('select', { id: 'task-who' }, activeMembers().map(m => el('option', { value: m.id, text: m.name })));
+      const who = el('select', { id: 'task-who' }, taskMembers().map(m => el('option', { value: m.id, text: m.name })));
       who.value = st.assignee;
       who.addEventListener('change', () => { st.assignee = who.value; });
       const title = el('input', { type: 'text', id: 'task-title', maxlength: 200, value: st.title, required: true, oninput: e => { st.title = e.target.value; } });
