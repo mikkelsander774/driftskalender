@@ -155,7 +155,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 
 /* ---------- Kalender ---------- */
 .cal-wrap { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
-@media (min-width: 980px) { .cal-wrap { grid-template-columns: minmax(0, 1fr) clamp(21rem, 21vw, 26rem); } }
+@media (min-width: 980px) { .cal-wrap { grid-template-columns: minmax(0, 1fr) clamp(21rem, 23vw, 28rem); } }
+/* Fra 1200 px er kolonnen til højre mindst bred nok til, at de fire mærker i forklaringen står på én linje */
+@media (min-width: 1200px) { .cal-wrap { grid-template-columns: minmax(0, 1fr) clamp(25.5rem, 23vw, 28rem); } }
 
 .cal-top { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1.5rem; margin-bottom: .9rem; }
 .cal-top .cal-toolbar, .cal-top .legend { margin-bottom: 0; }
@@ -169,11 +171,14 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 
 /* Overblikket til højre for kalenderen: I dag og ønsker om støtte */
 .cal-side { min-width: 0; }
-.cal-status { display: grid; gap: .65rem; padding: .85rem 1rem; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
+.cal-status { display: grid; gap: .65rem; padding: .85rem .85rem; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
 .cal-status > * + * { padding-top: .65rem; border-top: 1px solid var(--line-2); }
 .cal-status p { margin: 0; }
 .cal-status .key { margin-left: 0; }
-.req-key-row { display: grid; gap: .45rem; }
+.req-key-row { display: grid; gap: .4rem; }
+.req-key-label { font-size: .9rem; color: var(--ink-2); }
+/* De fire mærker står på én linje, så længe kolonnen er bred nok (fra ca. 1800 px skærmbredde); ellers bryder de over */
+.req-pills { display: flex; flex-wrap: wrap; gap: .3rem; }
 
 .legend { display: flex; flex-wrap: wrap; gap: .4rem .5rem; align-items: center; margin-bottom: .9rem; }
 .chip {
@@ -277,8 +282,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 /* Tidsrummet står under teksten, så der er plads til begge i en smal celle */
 .req-time { font-family: var(--f-display); font-weight: 500; font-size: .72rem; line-height: 1.2; white-space: nowrap; }
 .req-short { display: none; }
-.key.req-keys { flex-wrap: wrap; }
-.req-key { flex: none; margin-left: 0; font-size: .82rem; }
+.req-key { flex: none; margin-left: 0; font-size: .74rem; padding: .1rem .3rem .12rem; }
 .req-key .req-lbl { overflow: visible; }
 .cell.has-req::before {
   content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--rs, transparent); pointer-events: none;

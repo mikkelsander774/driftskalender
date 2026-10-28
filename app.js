@@ -341,11 +341,12 @@ function viewCalendar() {
     }, el('span', { class: 'sw' }), m.name)));
 
   // Forklaring til farverne på ønsker om støtte, i kolonnen til højre
+  // Teksten står på én linje og de fire mærker på linjen under
   const reqKey = el('div', { class: 'req-key-row', role: 'group', 'aria-label': 'Forklaring til ønsker om støtte' },
-    el('span', { class: 'key req-keys' }, 'Særligt ønske om støtte:',
-      [['covered', 'Dækket'], ['partial', 'Delvist dækket'], ['missing', 'Mangler']]
-        .map(([s, t]) => el('span', { class: `req ${s} req-key` }, el('span', { class: 'req-lbl', text: t })))),
-    el('span', { class: 'key req-keys' }, el('span', { class: 'req info req-key' }, el('span', { class: 'req-lbl', text: 'Øvrigt ønske om støtte' }))));
+    el('span', { class: 'req-key-label', text: 'Særligt ønske om støtte:' }),
+    el('div', { class: 'req-pills' },
+      [['covered', 'Dækket'], ['partial', 'Delvist dækket'], ['missing', 'Mangler'], ['info', 'Øvrigt ønske om støtte']]
+        .map(([s, t]) => el('span', { class: `req ${s} req-key` }, el('span', { class: 'req-lbl', text: t })))));
 
   // Overblik over måneden: hvor mange ønsker om støtte, og hvor mange mangler stadig en gulvvagt.
   const monthKey = `${S.month.getFullYear()}-${pad(S.month.getMonth() + 1)}`;
