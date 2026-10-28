@@ -1155,7 +1155,7 @@ function viewMembers() {
     adm.addEventListener('change', async () => { const r = await api('member_update', { id: m.id, is_admin: adm.checked }); toast(r.ok ? 'Gemt' : r.error, !r.ok); reload(); });
     return el('li', { class: 'mrow' + (m.active ? '' : ' off') },
       el('div', { class: 'm-name', vars: { '--c': colorOf(m.id) } }, el('span', { class: 'sw' }),
-        el('div', {}, el('b', { text: m.name + (self ? ' (dig)' : '') }), el('small', { text: (m.email || 'Ikke oprettet endnu') + (m.role === 'drift' ? ' · kun læseadgang' : '') }))),
+        el('div', {}, el('b', { text: m.name + (self ? ' (dig)' : '') }), el('small', { text: (m.email ? (m.email.includes('@') ? m.email.slice(0, m.email.indexOf('@') + 1) : m.email) : 'Ikke oprettet endnu') + (m.role === 'drift' ? ' · kun læseadgang' : '') }))),
       el('div', { class: 'm-status', text: status }),
       el('div', { class: 'm-actions' },
         roleSel,
