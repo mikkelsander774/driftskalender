@@ -245,7 +245,7 @@ function renderApp() {
   S.view = view;
   document.title = `${{ kalender: 'Kalender', opgaver: 'Opgaver', medarbejdere: 'Medarbejdere' }[view]} · Driftskalender`;
   const content = view === 'kalender' ? viewCalendar() : view === 'opgaver' ? viewTasks() : viewMembers();
-  $('#app').replaceChildren(el('div', { class: 'shell' }, topbar(), el('main', { class: 'page', id: 'main' }, content)));
+  $('#app').replaceChildren(el('div', { class: 'shell' }, topbar(), el('main', { class: 'page' + (view === 'kalender' ? ' page-wide' : '') + (view === 'kalender' && S.multi ? ' has-bar' : ''), id: 'main' }, content)));
   window.scrollTo(0, y);
   if (fk) {
     const safe = (window.CSS && CSS.escape) ? CSS.escape(fk) : fk.replace(/"/g, '\\"');
@@ -323,20 +323,25 @@ function viewCalendar() {
       type: 'button', class: 'btn' + (S.multi ? ' primary' : ''), 'aria-pressed': S.multi ? 'true' : 'false',
       text: S.multi ? 'Færdig med at vælge' : 'Vælg flere dage',
       onclick: () => { S.multi = !S.multi; S.picked.clear(); S.sheetOpen = false; renderApp(); },
-    }),
-    (() => {
-      const tdItems = byDay[today];
-      if (!tdItems && !(today >= iso(f) && today <= iso(t))) return null;
-      const s = summarize(tdItems || []);
-      return el('p', { class: 'today-line' }, 'I dag: ', el('b', { text: gvText(s.g) }), `, ${s.k} på kald`);
-    })());
+    }));
+
+  // "I dag: x tilgængelige gulvvagter, x på kald" står i kolonnen til højre for kalenderen
+  const todayLine = (() => {
+    const tdItems = byDay[today];
+    if (!tdItems && !(today >= iso(f) && today <= iso(t))) return null;
+    const s = summarize(tdItems || []);
+    return el('p', { class: 'today-line' }, 'I dag: ', el('b', { text: gvText(s.g) }), `, ${s.k} på kald`);
+  })();
 
   const legend = el('div', { class: 'legend', role: 'group', 'aria-label': 'Fremhæv en person' },
     lanes.map(m => el('button', {
       type: 'button', class: 'chip', 'aria-pressed': S.focusMember === m.id ? 'true' : 'false',
       vars: { '--c': colorOf(m.id) }, 'data-fk': 'chip-' + m.id,
       onclick: () => { S.focusMember = S.focusMember === m.id ? null : m.id; renderApp(); },
-    }, el('span', { class: 'sw' }), m.name)),
+    }, el('span', { class: 'sw' }), m.name)));
+
+  // Forklaring til farverne på ønsker om støtte, i kolonnen til højre
+  const reqKey = el('div', { class: 'req-key-row', role: 'group', 'aria-label': 'Forklaring til ønsker om støtte' },
     el('span', { class: 'key req-keys' }, 'Særligt ønske om støtte:',
       [['covered', 'Dækket'], ['partial', 'Delvist dækket'], ['missing', 'Mangler']]
         .map(([s, t]) => el('span', { class: `req ${s} req-key` }, el('span', { class: 'req-lbl', text: t })))),
@@ -480,8 +485,12 @@ function viewCalendar() {
   const dotKey = el('div', { class: 'dot-key', role: 'group', 'aria-label': 'Forklaring til prikkerne' },
     el('span', { class: 'key' }, el('span', { class: 'dot g' }), 'Gulvvagt'),
     el('span', { class: 'key' }, el('span', { class: 'dot k' }), 'På kald'));
-  const left = el('div', { class: 'cal-main' }, toolbar, legend, reqSummary, grid, dotKey);
-  const wrap = el('div', { class: 'cal-wrap' + (S.focusMember ? ' focus' : '') }, left, dayPanel(byDay));
+  // Månedsvælger og personer står på samme linje, når der er plads (ellers falder personerne ned under)
+  const left = el('div', { class: 'cal-main' }, el('div', { class: 'cal-top' }, toolbar, legend), grid, dotKey);
+  // Kolonnen til højre: overblik (I dag og ønsker om støtte) øverst, dagspanelet under
+  const status = el('section', { class: 'cal-status', 'aria-label': 'Overblik' }, todayLine, reqSummary, reqKey);
+  const side = el('div', { class: 'cal-side' }, status, dayPanel(byDay));
+  const wrap = el('div', { class: 'cal-wrap' + (S.focusMember ? ' focus' : '') }, left, side);
   const nodes = [wrap];
   if (S.sheetOpen && S.selected && !S.multi) nodes.push(el('div', { class: 'sheet-back', onclick: closeSheet }));
   if (S.multi) nodes.push(multiBar());
