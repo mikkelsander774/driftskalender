@@ -172,6 +172,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 .chip[aria-pressed="true"] .sw { box-shadow: 0 0 0 2px #fff; }
 .key { display: inline-flex; align-items: center; gap: .4rem; font-size: .9rem; color: var(--ink-2); margin-left: .6rem; }
 .key .dot { --dot: 11px; --c: var(--ink); }
+.dot-key { display: flex; flex-wrap: wrap; gap: .3rem 1.2rem; align-items: center; margin-top: .75rem; }
+.dot-key .key { margin-left: 0; }
 
 .cal-grid {
   display: grid; background: var(--line); gap: 1px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden;

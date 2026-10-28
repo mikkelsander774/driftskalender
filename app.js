@@ -333,8 +333,6 @@ function viewCalendar() {
       vars: { '--c': colorOf(m.id) }, 'data-fk': 'chip-' + m.id,
       onclick: () => { S.focusMember = S.focusMember === m.id ? null : m.id; renderApp(); },
     }, el('span', { class: 'sw' }), m.name)),
-    el('span', { class: 'key' }, el('span', { class: 'dot g' }), 'Gulvvagt'),
-    el('span', { class: 'key' }, el('span', { class: 'dot k' }), 'På kald'),
     el('span', { class: 'key req-keys' }, 'Særligt ønske om støtte:',
       [['covered', 'Dækket'], ['partial', 'Delvist dækket'], ['missing', 'Mangler']]
         .map(([s, t]) => el('span', { class: `req ${s} req-key` }, el('span', { class: 'req-lbl', text: t })))),
@@ -474,7 +472,11 @@ function viewCalendar() {
   grid.addEventListener('mouseout', e => { const b = barOf(e); if (b && !b.contains(e.relatedTarget)) highlight(b, false); });
   grid.addEventListener('focusin', e => { const b = barOf(e); if (b) highlight(b, true); });
   grid.addEventListener('focusout', e => { const b = barOf(e); if (b) highlight(b, false); });
-  const left = el('div', { class: 'cal-main' }, toolbar, legend, reqSummary, grid);
+  // Forklaring til prikkerne i cellerne står under kalenderen
+  const dotKey = el('div', { class: 'dot-key', role: 'group', 'aria-label': 'Forklaring til prikkerne' },
+    el('span', { class: 'key' }, el('span', { class: 'dot g' }), 'Gulvvagt'),
+    el('span', { class: 'key' }, el('span', { class: 'dot k' }), 'På kald'));
+  const left = el('div', { class: 'cal-main' }, toolbar, legend, reqSummary, grid, dotKey);
   const wrap = el('div', { class: 'cal-wrap' + (S.focusMember ? ' focus' : '') }, left, dayPanel(byDay));
   const nodes = [wrap];
   if (S.sheetOpen && S.selected && !S.multi) nodes.push(el('div', { class: 'sheet-back', onclick: closeSheet }));
@@ -1332,7 +1334,7 @@ function showLogin(message) {
   });
   gate([
     el('h1', { text: 'Driftskalender' }),
-    el('p', { class: 'lede', text: 'Se hvem der kan bidrage i driften, og hvad der skal nås.' }),
+    el('p', { class: 'lede', text: 'Se hvem der kan bidrage i driften.' }),
     form,
     el('p', { class: 'fine', text: 'Adgang kræver en invitation fra administratoren.' })]);
   setTimeout(() => (message ? pw : email).focus(), 0);
