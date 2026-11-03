@@ -320,9 +320,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 .req-add { padding-top: .25rem; }
 .time-pick { display: grid; gap: .5rem; margin-top: .4rem; }
 .time-pick:empty { display: none; }
-.time-fields, .time-dyn { display: grid; gap: .5rem; }
-.outside-row { font-weight: 400; }
-.time-fields .hint { font-size: .88rem; color: var(--ink-3); }
+.time-fields { display: grid; gap: .5rem; }
 .dept-note { color: var(--ink-2); }
 .groups { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: .4rem; }
 .groups legend { padding: 0; margin-bottom: .3rem; font-weight: 700; font-size: .92rem; color: var(--ink-2); }

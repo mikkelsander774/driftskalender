@@ -983,49 +983,27 @@ function segmented(name, options, value, onchange) {
   }));
 }
 
-// Åbningstid (Kundeservice 08-16): som standard kan man kun vælge tidsrum inden for den. Uden for åbningstid skal vælges specifikt.
+// Kundeservice har åbent 08-16. Tidsvælgerne er frie (man kan sagtens vælge tid uden for åbningstid), men genvejene
+// er kun dem der ligger inden for åbningstiden: Formiddag, Eftermiddag og Hele dagen.
 function openWindow() {
   const c = deptCfg();
   return c.open_from && c.open_to ? [c.open_from, c.open_to] : null;
 }
 function timeErr(st) {
-  if (st.end <= st.start) return 'Sluttidspunktet skal være efter starttidspunktet.';
-  const win = openWindow();
-  if (win && !st.outside && (st.start < win[0] || st.end > win[1])) {
-    return 'Tidsrummet ligger uden for åbningstiden. Sæt flueben ved "Uden for åbningstid", hvis det er meningen.';
-  }
-  return '';
+  return st.end <= st.start ? 'Sluttidspunktet skal være efter starttidspunktet.' : '';
 }
-// Fra og til (kvarterer) med genveje. st.start og st.end rettes direkte. Afdelinger med åbningstid får et flueben til tid uden for åbningstid.
+// Fra og til (kvarterer) med genveje. st.start og st.end rettes direkte.
 function timeFields(st) {
   const win = openWindow();
-  if (win && st.outside === undefined) st.outside = st.start < win[0] || st.end > win[1];
-  const dyn = el('div', { class: 'time-dyn' });
-  const draw = () => {
-    const limited = !!win && !st.outside;
-    if (limited) {
-      if (st.start < win[0] || st.start >= win[1]) st.start = win[0];
-      if (st.end > win[1] || st.end <= win[0]) st.end = win[1];
-      if (st.end <= st.start) { st.start = win[0]; st.end = win[1]; }
-    }
-    const startSel = selectEl(limited ? TIMES.filter(t => t >= win[0] && t < win[1]) : TIMES, st.start, v => { st.start = v; }, { 'aria-label': 'Fra klokken' });
-    const endSel = selectEl(limited ? END_TIMES.filter(t => t > win[0] && t <= win[1]) : END_TIMES, st.end, v => { st.end = v; }, { 'aria-label': 'Til klokken' });
-    dyn.replaceChildren(
-      el('div', { class: 'row' }, el('div', { class: 'field' }, startSel), el('div', { class: 'field' }, endSel)),
-      el('div', { class: 'presets' }, PRESETS.filter(([, a, b]) => !limited || (a >= win[0] && b <= win[1])).map(([label, a, b]) => el('button', {
-        type: 'button', class: 'btn small', text: label,
-        onclick: () => { st.start = a; st.end = b; startSel.value = a; endSel.value = b; },
-      }))));
-  };
-  draw();
-  const box = el('div', { class: 'time-fields' }, dyn);
-  if (win) {
-    const chk = el('input', { type: 'checkbox', checked: !!st.outside });
-    chk.addEventListener('change', () => { st.outside = chk.checked; draw(); });
-    box.append(
-      el('label', { class: 'check outside-row' }, chk, `Uden for åbningstid (der er åbent ${hourText(win[0])}–${hourText(win[1])})`),
-      el('span', { class: 'hint', text: 'Vælg kun dette, hvis du specifikt tilbyder hjælp uden for åbningstiden.' }));
-  }
+  const box = el('div', { class: 'time-fields' });
+  const startSel = selectEl(TIMES, st.start, v => { st.start = v; }, { 'aria-label': 'Fra klokken' });
+  const endSel = selectEl(END_TIMES, st.end, v => { st.end = v; }, { 'aria-label': 'Til klokken' });
+  box.append(
+    el('div', { class: 'row' }, el('div', { class: 'field' }, startSel), el('div', { class: 'field' }, endSel)),
+    el('div', { class: 'presets' }, PRESETS.filter(([, a, b]) => !win || (a >= win[0] && b <= win[1])).map(([label, a, b]) => el('button', {
+      type: 'button', class: 'btn small', text: label,
+      onclick: () => { st.start = a; st.end = b; startSel.value = a; endSel.value = b; },
+    }))));
   return box;
 }
 
