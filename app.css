@@ -1,6 +1,6 @@
 /* Driftskalender
    Visuelt tema: fiberkabler. Hver person har en fiberfarve, og hver dag er et kabeltværsnit.
-   Udfyldt prik = Gulvvagt, ring = På kald. */
+   Udfyldt prik = Gulvvagt, ring = På kald, udfyldt firkant = Administrative opgaver (Kundeservice). */
 
 @font-face {
   font-family: "Bricolage Grotesque";
@@ -112,6 +112,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 .seg-opt.fast input:checked + span { background: var(--danger); border-color: var(--danger); }
 .seg-opt .pip { width: .8rem; height: .8rem; border-radius: 50%; border: 2px solid currentColor; flex: none; }
 .seg-opt .pip.fill { background: currentColor; }
+.seg-opt .pip.sq { background: currentColor; border-radius: 2px; }
 
 /* ---------- Skal ---------- */
 .topbar {
@@ -129,6 +130,11 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 }
 .tab:hover { background: var(--line-2); color: var(--ink); }
 .tab.on { background: var(--ink); color: #fff; }
+.dept-select {
+  width: auto; min-height: 2.5rem; padding: .3rem 2rem .3rem .75rem; font-weight: 700; color: var(--ink);
+  border: 1px solid var(--ink-3); background-color: var(--paper);
+}
+.dept-name { padding: .35rem .75rem; border-radius: 999px; background: var(--line-2); font-weight: 700; color: var(--ink-2); white-space: nowrap; }
 .acct { margin-left: auto; position: relative; }
 .acct summary {
   list-style: none; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end;
@@ -227,6 +233,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 .dot { width: var(--dot); height: var(--dot); border-radius: 50%; display: block; }
 .dot.g { background: var(--c); }
 .dot.k { border: 2.5px solid var(--c); background: transparent; }
+.dot.a { background: var(--c); border-radius: 2px; }
 
 /* Tilmeldinger som tekst i cellen: udfyldt prik = Gulvvagt, ring = På kald, i personens farve */
 .sign { display: grid; gap: .15rem; align-content: start; }
@@ -311,6 +318,10 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 .req-add { padding-top: .25rem; }
 .time-pick { display: grid; gap: .5rem; margin-top: .4rem; }
 .time-pick:empty { display: none; }
+.time-fields, .time-dyn { display: grid; gap: .5rem; }
+.outside-row { font-weight: 400; }
+.time-fields .hint { font-size: .88rem; color: var(--ink-3); }
+.dept-note { color: var(--ink-2); }
 .groups { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: .4rem; }
 .groups legend { padding: 0; margin-bottom: .3rem; font-weight: 700; font-size: .92rem; color: var(--ink-2); }
 .group-row { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; }
@@ -398,7 +409,12 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 @media (max-width: 640px) {
   /* Topbaren på en smal skærm: brandnavn og rolle skjules, så alle faner kan ses */
   .topbar { gap: .5rem; }
-  .brand, .acct .role { display: none; }
+  .brand, .acct .role, .dept-name { display: none; }
+  /* Afdelingsvælgeren får en linje for sig under fanerne, så ingen faner skjules */
+  .topbar { flex-wrap: wrap; row-gap: .4rem; }
+  .tabs { flex: 1 1 auto; order: 1; min-width: 0; }
+  .acct { order: 2; }
+  .dept-select { order: 3; flex: 1 1 100%; max-width: none; min-height: 2.25rem; padding: .2rem 1.8rem .2rem .6rem; font-size: .95rem; }
   .tabs { margin-left: 0; }
   .tab { padding: .35rem .5rem; font-size: .95rem; }
   .acct summary { padding: .2rem .3rem; }
@@ -438,6 +454,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 .person-head h2 { font: 700 1.3rem/1.15 var(--f-display); letter-spacing: -.01em; }
 .person-head .role { color: var(--ink-3); font-size: .9rem; }
 .person-head .me { font-size: .85rem; color: var(--ink-2); }
+.person-sub { margin-top: -.55rem; color: var(--ink-3); font-size: .9rem; }
 .group { display: grid; gap: .25rem; }
 .group-h { display: flex; align-items: center; gap: .5rem; font-weight: 700; font-size: .92rem; color: var(--ink-2); }
 .group-h .flag { width: .7rem; height: .7rem; border-radius: 2px; background: var(--danger); flex: none; }
@@ -475,6 +492,10 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 }
 .mrow:first-child { border-top: 0; }
 .mrow.ro { grid-template-columns: minmax(0, 1fr) auto; }
+.mgroup + .mgroup { margin-top: 1.5rem; }
+.mgroup-h { font: 700 1.2rem/1.2 var(--f-display); letter-spacing: -.01em; margin-bottom: .6rem; }
+.m-name small { display: block; }
+.m-name .m-sub { color: var(--ink-2); }
 .mrow.off { background: var(--wash); color: var(--ink-3); }
 .m-name { display: flex; align-items: center; gap: .6rem; min-width: 0; }
 .m-name .sw { width: .9rem; height: .9rem; border-radius: 50%; background: var(--c); flex: none; }

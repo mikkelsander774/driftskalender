@@ -1,5 +1,6 @@
 'use strict';
-/* Driftskalender: fælles tilgængelighed (Gulvvagt / På kald) og opgaver for driftsgruppen.
+/* Driftskalender: fælles tilgængelighed (Gulvvagt / På kald / Administrative opgaver) og opgaver for driftsgruppen,
+   delt op i afdelinger (Teknisk Support og Kundeservice).
    Al data og al adgangskontrol ligger i databasen. Denne side er kun brugerfladen. */
 (function () {
 
@@ -9,7 +10,9 @@ const API_URL = 'https://cqhgtbyytkczalmqamck.supabase.co/functions/v1/driftskal
 const STRANDS = ['#2467C9', '#E27A12', '#2F9E5B', '#8B5E3C', '#7A4DB8', '#5B7385',
                  '#D6538A', '#12A3A8', '#B58F00', '#3E4FA0', '#6E8F1B', '#8E3B6B'];
 const ROLES = { teamleder: 'Teamleder', tuk: 'TUK', problemmanager: 'ProblemManager', drift: 'Drift' };
-const MODE_LABEL = { gulvvagt: 'Gulvvagt', kald: 'På kald' };
+const MODE_LABEL = { gulvvagt: 'Gulvvagt', kald: 'På kald', admin: 'Administrative opgaver' };
+const MODE_DOT = { gulvvagt: 'g', kald: 'k', admin: 'a' }; // udfyldt prik, ring, udfyldt firkant
+const MODE_ORDER = { gulvvagt: 0, kald: 1, admin: 2 };
 const PRIO_LABEL = { fast: 'Kan ikke aflyses/udsættes', fleksibel: 'Foretages ved tid / mulighed' };
 const VIEWS = ['kalender', 'opgaver', 'medarbejdere'];
 
@@ -36,33 +39,46 @@ const PRESETS = [['Formiddag', '08:00', '12:00'], ['Eftermiddag', '12:00', '16:0
 
 // Tekster til tilmeldinger. Der kan kun være én gulvvagt ad gangen, men flere kan tilbyde sig hver sit tidsrum,
 // så tallet er antal personer der er tilgængelige som gulvvagt, ikke antal der står på gulvet samtidig.
+// I Kundeservice er der ingen gulvvagter: der tæller man dem på kald og dem der tager administrative opgaver.
 const gvText = n => n === 1 ? '1 tilgængelig gulvvagt' : `${n} tilgængelige gulvvagter`;
-const countsText = s => `${gvText(s.g)}, ${s.k} på kald`;
+const hasMode = m => deptCfg().avail_modes.includes(m);
+const countsText = s => hasMode('gulvvagt') ? `${gvText(s.g)}, ${s.k} på kald` : `${s.k} på kald, ${s.a} til administrative opgaver`;
 const hourText = t => t === '23:59' ? '24' : t.endsWith(':00') ? t.slice(0, 2) : t; // 08:00 → 08, 23:59 → 24
 const rangeText = a => `${hourText(a.start)}–${hourText(a.end)}`;
 const initialsOf = name => name.trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
 
-// Ønsker om støtte fra driften. Særligt ønske: Gulvvagt og Stafet, begge med dækningsstatus (grøn/gul/rød).
-// Øvrigt ønske (lilla): På kald eller administrative opgaver. Gulvvagt og Stafet dækkes af gulvvagt-tilmeldinger i tidsrummet.
+// Ønsker om støtte fra driften. Hvert ønske hører til en afdeling, og afdelingen bestemmer typerne og hvad der dækker dem.
+// Teknisk Support: Gulvvagt og Stafet er særlige ønsker med dækningsstatus (grøn/gul/rød) og dækkes af gulvvagt-tilmeldinger i tidsrummet.
+// På kald og administrative opgaver er øvrige ønsker (lilla) uden status.
+// Kundeservice: På kald og administrative opgaver har begge dækningsstatus og dækkes af tilmeldinger af samme type.
 const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 const fromMin = n => `${pad(Math.floor(n / 60))}:${pad(n % 60)}`;
-const REQ_KINDS = [['gulvvagt', 'Gulvvagt'], ['stafet', 'Stafet'], ['kald', 'På kald'], ['admin', 'Administrative opgaver']];
+const REQ_LABEL = { gulvvagt: 'Gulvvagt', stafet: 'Stafet', kald: 'På kald', admin: 'Administrative opgaver' };
 const REQ_GROUPS = [['teamleder', 'Teamledere'], ['tuk', "TUK'er"], ['problemmanager', 'ProblemManager']];
 const REQ_ORDER = ['missing', 'partial', 'covered', 'info']; // værst først
-// Tekst i kalenderens mærke (lang og kort) pr. type og status
+const REQ_SHORT = { gulvvagt: 'GV', stafet: 'Stafet', kald: 'Kald', admin: 'Adm.' };
+// Tekst i kalenderens mærke pr. type og status
 const REQ_CELL = {
-  gulvvagt: { covered: 'GV dækket', partial: 'GV delvist', missing: 'Mangler GV', short: 'GV' },
-  stafet: { covered: 'Stafet dækket', partial: 'Stafet delvist', missing: 'Mangler stafet', short: 'Stafet' },
-  kald: { info: 'På kald', short: 'Kald' },
-  admin: { info: 'Administrativt', short: 'Adm.' },
+  gulvvagt: { covered: 'GV dækket', partial: 'GV delvist', missing: 'Mangler GV' },
+  stafet: { covered: 'Stafet dækket', partial: 'Stafet delvist', missing: 'Mangler stafet' },
+  kald: { covered: 'Kald dækket', partial: 'Kald delvist', missing: 'Mangler kald' },
+  admin: { covered: 'Adm. dækket', partial: 'Adm. delvist', missing: 'Mangler adm.' },
 };
-const reqKindLabel = kind => (REQ_KINDS.find(k => k[0] === kind) || [0, ''])[1];
-const isSpecial = r => r.kind === 'gulvvagt' || r.kind === 'stafet'; // ellers er det et øvrigt ønske
-const timeRequired = kind => kind === 'gulvvagt' || kind === 'stafet' || kind === 'kald';
-const hasCoverage = r => r.kind === 'gulvvagt' || r.kind === 'stafet'; // kun disse kan være dækket eller mangle
+const REQ_INFO_CELL = { kald: 'På kald', admin: 'Administrativt' }; // typer uden dækningsstatus
+const MISSING_NOUN = { gulvvagt: 'gulvvagt', stafet: 'stafet', kald: 'nogen på kald', admin: 'hjælp til administrative opgaver' };
+const MISSING_SUM = { gulvvagt: 'mangler gulvvagt', stafet: 'mangler stafet', kald: 'mangler på kald', admin: 'mangler hjælp til administrative opgaver' };
+const COVER_BY = { gulvvagt: 'Gulvvagt: ', stafet: 'Dækket af: ', kald: 'På kald: ', admin: 'Administrative opgaver: ' };
+const reqKindLabel = kind => REQ_LABEL[kind] || '';
+// Hvilken tilmelding der dækker en ønsketype i afdelingen. Ingen post = ingen dækningsstatus (øvrigt ønske).
+const coverMode = kind => deptCfg().coverage[kind] || null;
+const hasCoverage = r => !!coverMode(r.kind);
+const isSpecial = hasCoverage; // ellers er det et øvrigt ønske
+const hasInfoKinds = () => deptCfg().request_kinds.some(k => !deptCfg().coverage[k]);
+const specialWord = () => hasInfoKinds() ? 'Særligt ønske om støtte' : 'Ønske om støtte';
+const timeRequired = kind => kind === 'gulvvagt' || kind === 'stafet' || kind === 'kald' || !!coverMode(kind);
 const reqTime = r => r.start ? `${r.start}–${r.end}` : '';
-const reqStateText = (state, kind) => state === 'covered' ? 'Dækket' : state === 'partial' ? 'Delvist dækket' : kind === 'stafet' ? 'Mangler stafet' : 'Mangler gulvvagt';
-// "Gulvvagt ønskes 08:00–16:00", "Stafet ønskes 16:00–21:00", "På kald 08:00–16:00", "Administrative opgaver"
+const reqStateText = (state, kind) => state === 'covered' ? 'Dækket' : state === 'partial' ? 'Delvist dækket' : 'Mangler ' + MISSING_NOUN[kind];
+// "Gulvvagt ønskes 08:00–16:00", "Stafet ønskes 16:00–21:00", "På kald 08:00–16:00" (Teknisk Support), "På kald ønskes 08:00–16:00" (Kundeservice)
 const reqWhat = r => {
   const t = reqTime(r);
   if (hasCoverage(r)) return `${reqKindLabel(r.kind)} ønskes ${t}`;
@@ -70,8 +86,9 @@ const reqWhat = r => {
 };
 function coverageOf(req, items) {
   if (!hasCoverage(req)) return null;
+  const mode = coverMode(req.kind);
   const rs = toMin(req.start), re = toMin(req.end);
-  const segs = items.filter(a => a.mode === 'gulvvagt')
+  const segs = items.filter(a => a.mode === mode)
     .map(a => ({ s: Math.max(rs, toMin(a.start)), e: Math.min(re, toMin(a.end)), a }))
     .filter(x => x.e > x.s)
     .sort((x, y) => x.s - y.s || x.e - y.e);
@@ -82,7 +99,7 @@ function coverageOf(req, items) {
   return { state: !gaps.length ? 'covered' : segs.length ? 'partial' : 'missing', gaps, segs: segs.map(x => x.a) };
 }
 const reqState = (req, cov) => cov ? cov.state : 'info';
-const reqCellLabel = (req, cov) => REQ_CELL[req.kind][reqState(req, cov)];
+const reqCellLabel = (req, cov) => cov ? REQ_CELL[req.kind][cov.state] : REQ_INFO_CELL[req.kind];
 // Samme oplysninger som tekst: bruges til hover og skærmlæsere
 const reqText = (req, cov) => {
   const parts = [reqWhat(req).toLowerCase()];
@@ -148,6 +165,7 @@ function heroMark() {
 const S = {
   token: store.get('dk_token'),
   me: null, members: [], avail: [], tasks: [], requests: [],
+  departments: [], dept: store.get('dk_dept'), // afdelingen der vises nu (administrator og Drift kan skifte)
   colors: {},
   view: 'kalender',
   month: startOfMonth(new Date()),
@@ -158,13 +176,22 @@ const S = {
   range: null, sig: '',
 };
 const memberById = id => S.members.find(m => m.id === id);
+// Afdelingen der vises, og dens regler (hvad man kan stille op som, hvilke ønsker der findes, hvad der dækker dem, åbningstid)
+const FALLBACK_DEPT = {
+  id: null, name: '', avail_modes: ['gulvvagt', 'kald'], request_kinds: ['gulvvagt', 'stafet', 'kald', 'admin'],
+  coverage: { gulvvagt: 'gulvvagt', stafet: 'gulvvagt' }, open_from: null, open_to: null,
+};
+const deptCfg = () => S.departments.find(d => d.id === S.dept) || FALLBACK_DEPT;
 // Drift har kun læseadgang. De kan ikke skrive sig på eller have opgaver, så de indgår ikke som personer i kalender og opgaver.
 const isViewer = () => !!S.me && S.me.role === 'drift';
-const activeMembers = () => S.members.filter(m => m.active && m.role !== 'drift');
+// Personerne i kalenderen og under Opgaver er den viste afdelings aktive medarbejdere
+const activeMembers = () => S.members.filter(m => m.active && m.role !== 'drift' && m.department_id === S.dept);
 // Opgaver ligger kun hos TUK'er og ProblemManager. Teamledere vises ikke under Opgaver og kan ikke være ansvarlige.
 const TASK_ROLES = ['tuk', 'problemmanager'];
 const taskMembers = () => activeMembers().filter(m => TASK_ROLES.includes(m.role));
 const meHasTasks = () => !!S.me && TASK_ROLES.includes(S.me.role);
+// Man kan kun oprette og rette opgaver for sig selv. Teamlederen kan det også for sine egne medarbejdere, og administrator for alle.
+const canTaskFor = m => !!S.me && !!m && !isViewer() && (S.me.is_admin || m.id === S.me.id || (S.me.role === 'teamleder' && m.team_leader_id === S.me.id));
 const colorOf = id => S.colors[id] || STRANDS[0];
 
 function rankColors() {
@@ -205,9 +232,13 @@ function gridRange(month) {
   const last = new Date(month.getFullYear(), month.getMonth() + 1, 0);
   return [mondayOf(month), addDays(mondayOf(last), 6)];
 }
-const sigOf = r => JSON.stringify([r.members, r.availability, r.tasks, r.requests || []]);
+const sigOf = r => JSON.stringify([r.members, r.availability, r.tasks, r.requests || [], r.departments || [], r.department || null]);
 function applyData(r, from, to) {
   S.me = r.me; S.members = r.members; S.avail = r.availability; S.tasks = r.tasks; S.requests = r.requests || [];
+  S.departments = r.departments || [];
+  // Serveren afgør hvilken afdeling der kan vises. Den vælges kun frit af administrator og Drift.
+  if (r.department !== S.dept) { S.dept = r.department || null; }
+  if (S.dept) store.set('dk_dept', S.dept);
   S.range = [from, to];
   S.sig = sigOf(r);
   rankColors();
@@ -215,9 +246,17 @@ function applyData(r, from, to) {
 async function loadData() {
   const [f, t] = gridRange(S.month);
   const from = iso(f), to = iso(t);
-  const r = await api('load', { from, to });
+  const r = await api('load', { from, to, department: S.dept || '' });
   if (r && r.ok) applyData(r, from, to);
   return r;
+}
+// Administrator og Drift skifter mellem afdelinger. Alt der er valgt i den ene, nulstilles.
+function switchDept(id) {
+  if (!id || id === S.dept) return;
+  S.dept = id;
+  store.set('dk_dept', id);
+  S.selected = null; S.sheetOpen = false; S.picked.clear(); S.multi = false; S.form = null; S.focusMember = null;
+  reload();
 }
 async function reload() {
   const r = await loadData();
@@ -228,7 +267,7 @@ async function reload() {
 async function silentRefresh() {
   if (!S.token || !S.me || !S.range || document.hidden || document.querySelector('dialog[open]') || S.multi) return;
   if (document.activeElement && document.activeElement.closest && document.activeElement.closest('.panel input, .panel select')) return;
-  const r = await api('load', { from: S.range[0], to: S.range[1] });
+  const r = await api('load', { from: S.range[0], to: S.range[1], department: S.dept || '' });
   if (!r || !r.ok) return;
   if (sigOf(r) === S.sig) return;
   applyData(r, S.range[0], S.range[1]);
@@ -241,7 +280,7 @@ function renderApp() {
   const active = document.activeElement;
   const fk = active && active.getAttribute ? active.getAttribute('data-fk') : null;
   const y = window.scrollY;
-  const view = S.view === 'medarbejdere' && !(S.me.is_admin || isViewer()) ? 'kalender' : S.view;
+  const view = S.view === 'medarbejdere' && !canSeeMembers() ? 'kalender' : S.view;
   S.view = view;
   document.title = `${{ kalender: 'Kalender', opgaver: 'Opgaver', medarbejdere: 'Medarbejdere' }[view]} · Driftskalender`;
   const content = view === 'kalender' ? viewCalendar() : view === 'opgaver' ? viewTasks() : viewMembers();
@@ -254,6 +293,9 @@ function renderApp() {
   }
 }
 
+// Medarbejdere: administrator ændrer, Drift og teamledere kan se (teamlederen sin egen afdeling)
+const canSeeMembers = () => !!S.me && (S.me.is_admin || isViewer() || S.me.role === 'teamleder');
+
 function go(view) {
   S.view = view;
   S.sheetOpen = false;
@@ -263,7 +305,7 @@ function go(view) {
 
 function topbar() {
   const tabs = [['kalender', 'Kalender'], ['opgaver', 'Opgaver']];
-  if (S.me.is_admin || isViewer()) tabs.push(['medarbejdere', 'Medarbejdere']);
+  if (canSeeMembers()) tabs.push(['medarbejdere', 'Medarbejdere']);
   return el('header', { class: 'topbar' },
     el('a', { class: 'brand', href: '#kalender', onclick: e => { e.preventDefault(); go('kalender'); } },
       mark(28), el('span', { class: 'brand-name', text: 'Driftskalender' })),
@@ -272,7 +314,21 @@ function topbar() {
         type: 'button', class: 'tab' + (S.view === k ? ' on' : ''), 'aria-current': S.view === k ? 'page' : null,
         'data-fk': 'tab-' + k, onclick: () => go(k), text: l,
       }))),
+    deptSwitch(),
     accountMenu());
+}
+
+// Afdeling: administrator og Drift kan skifte mellem dem (Medarbejdere viser alle). Alle andre ser navnet på deres egen.
+function deptSwitch() {
+  if (S.departments.length > 1) {
+    if (S.view === 'medarbejdere') return null;
+    const sel = el('select', { class: 'dept-select', 'aria-label': 'Afdeling', 'data-fk': 'dept' }, S.departments.map(d => el('option', { value: d.id, text: d.name })));
+    sel.value = S.dept;
+    sel.addEventListener('change', () => switchDept(sel.value));
+    return sel;
+  }
+  const d = deptCfg();
+  return d.name ? el('span', { class: 'dept-name', text: d.name }) : null;
 }
 
 function accountMenu() {
@@ -307,11 +363,7 @@ function viewCalendar() {
     return sameFirst[parts[0].toLowerCase()] > 1 && parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : parts[0];
   };
 
-  const summarize = items => {
-    const g = new Set(), k = new Set();
-    for (const a of items) (a.mode === 'gulvvagt' ? g : k).add(a.member_id);
-    return { g: g.size, k: k.size };
-  };
+  const summarize = summarizeItems;
 
   const toolbar = el('div', { class: 'cal-toolbar' },
     el('div', { class: 'cal-nav' },
@@ -330,7 +382,9 @@ function viewCalendar() {
     const tdItems = byDay[today];
     if (!tdItems && !(today >= iso(f) && today <= iso(t))) return null;
     const s = summarize(tdItems || []);
-    return el('p', { class: 'today-line' }, 'I dag: ', el('b', { text: gvText(s.g) }), `, ${s.k} på kald`);
+    return hasMode('gulvvagt')
+      ? el('p', { class: 'today-line' }, 'I dag: ', el('b', { text: gvText(s.g) }), `, ${s.k} på kald`)
+      : el('p', { class: 'today-line' }, 'I dag: ', el('b', { text: `${s.k} på kald` }), `, ${s.a} til administrative opgaver`);
   })();
 
   const legend = el('div', { class: 'legend', role: 'group', 'aria-label': 'Fremhæv en person' },
@@ -343,29 +397,29 @@ function viewCalendar() {
   // Forklaring til farverne på ønsker om støtte, i kolonnen til højre
   // Teksten står på én linje og de fire mærker på linjen under
   const reqKey = el('div', { class: 'req-key-row', role: 'group', 'aria-label': 'Forklaring til ønsker om støtte' },
-    el('span', { class: 'req-key-label', text: 'Særligt ønske om støtte:' }),
+    el('span', { class: 'req-key-label', text: specialWord() + ':' }),
     el('div', { class: 'req-pills' },
-      [['covered', 'Dækket'], ['partial', 'Delvist dækket'], ['missing', 'Mangler'], ['info', 'Øvrigt ønske om støtte']]
+      [['covered', 'Dækket'], ['partial', 'Delvist dækket'], ['missing', 'Mangler']].concat(hasInfoKinds() ? [['info', 'Øvrigt ønske om støtte']] : [])
         .map(([s, t]) => el('span', { class: `req ${s} req-key` }, el('span', { class: 'req-lbl', text: t })))));
 
-  // Overblik over måneden: hvor mange ønsker om støtte, og hvor mange mangler stadig en gulvvagt.
+  // Overblik over måneden: hvor mange ønsker om støtte, og hvor mange mangler stadig dækning.
   const monthKey = `${S.month.getFullYear()}-${pad(S.month.getMonth() + 1)}`;
   const monthReqs = S.requests.filter(r => r.day.slice(0, 7) === monthKey);
   const reqSummary = (() => {
     if (!monthReqs.length) return null;
-    const n = { missing: 0, missingStafet: 0, partial: 0, covered: 0, info: 0 };
+    const n = { partial: 0, covered: 0, info: 0 };
+    const missing = {};
     for (const r of monthReqs) {
       const s = reqState(r, coverageOf(r, byDay[r.day] || []));
-      n[s === 'missing' && r.kind === 'stafet' ? 'missingStafet' : s]++;
+      if (s === 'missing') missing[r.kind] = (missing[r.kind] || 0) + 1; else n[s]++;
     }
     const parts = [];
-    if (n.missing) parts.push(['missing', `${n.missing} mangler gulvvagt`]);
-    if (n.missingStafet) parts.push(['missing', `${n.missingStafet} mangler stafet`]);
+    for (const kind of ['gulvvagt', 'stafet', 'kald', 'admin']) if (missing[kind]) parts.push(['missing', `${missing[kind]} ${MISSING_SUM[kind]}`]);
     if (n.partial) parts.push(['partial', `${n.partial} delvist dækket`]);
     if (n.covered) parts.push(['covered', `${n.covered} dækket`]);
     const month = MONTH_LONG[S.month.getMonth()];
     return el('p', { class: 'req-summary' },
-      parts.length ? [`Særligt ønske om støtte i ${month}: `, parts.map(([s, t], i) => [i ? ' · ' : '', el('b', { class: 'rs ' + s, text: t })])] : null,
+      parts.length ? [`${hasInfoKinds() ? 'Særligt ønske' : 'Ønske'} om støtte i ${month}: `, parts.map(([s, t], i) => [i ? ' · ' : '', el('b', { class: 'rs ' + s, text: t })])] : null,
       n.info ? [parts.length ? '. ' : '', 'Øvrigt ønske om støtte: ', el('b', { class: 'rs info', text: String(n.info) })] : null);
   })();
 
@@ -381,12 +435,12 @@ function viewCalendar() {
     const other = d.getMonth() !== S.month.getMonth();
     const picked = S.picked.has(key);
     const sel = !S.multi && S.selected === key;
-    // Hver tilmelding står som tekst i cellen: Gulvvagt først, så På kald, hver sorteret efter starttidspunkt.
+    // Hver tilmelding står som tekst i cellen: Gulvvagt først, så På kald, så Administrative opgaver, hver sorteret efter starttidspunkt.
     const entries = items.slice().sort((a, b) =>
-      (a.mode === b.mode ? 0 : a.mode === 'gulvvagt' ? -1 : 1) || a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+      (MODE_ORDER[a.mode] - MODE_ORDER[b.mode]) || a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
     const sign = entries.length ? el('span', { class: 'sign', 'aria-hidden': 'true' }, entries.map(a => {
       const m = memberById(a.member_id);
-      const kind = a.mode === 'gulvvagt' ? 'g' : 'k';
+      const kind = MODE_DOT[a.mode];
       return el('span', {
         class: `sg ${kind}` + (S.focusMember === a.member_id ? ' is-focus' : ''), vars: { '--c': colorOf(a.member_id) },
         title: `${m ? m.name : ''}: ${MODE_LABEL[a.mode]} ${a.start}–${a.end}`,
@@ -405,13 +459,13 @@ function viewCalendar() {
     const reqLines = reqs.length ? el('span', { class: 'req-lines', 'aria-hidden': 'true' }, reqs.map((r, i) =>
       el('span', { class: `req ${states[i]}`, title: reqText(r, covs[i]) },
         el('span', { class: 'req-lbl', text: reqCellLabel(r, covs[i]) }),
-        el('span', { class: 'req-short', text: REQ_CELL[r.kind].short }),
+        el('span', { class: 'req-short', text: REQ_SHORT[r.kind] }),
         r.start ? el('span', { class: 'req-time', text: rangeText(r) }) : null))) : null;
     const label = `${fmtLong(d)}, ` + (entries.length
       ? `${countsText(sum)}: ` + entries.map(a => `${shortName(memberById(a.member_id))} ${MODE_LABEL[a.mode]} ${a.start}–${a.end}`).join(', ')
       : 'ingen tilmeldte')
       + (nTasks ? `, ${nTasks} ${nTasks === 1 ? 'opgave' : 'opgaver'} i perioden` : '')
-      + reqs.map((r, i) => `. ${isSpecial(r) ? 'Særligt' : 'Øvrigt'} ønske om støtte: ${reqText(r, covs[i])}`).join('');
+      + reqs.map((r, i) => `. ${hasInfoKinds() ? (isSpecial(r) ? 'Særligt ' : 'Øvrigt ') + 'ønske' : 'Ønske'} om støtte: ${reqText(r, covs[i])}`).join('');
     return el('button', {
       type: 'button',
       class: 'cell' + (other ? ' other' : '') + (dow(d) >= 5 ? ' wknd' : '') + (key === today ? ' today' : '') + (sel ? ' sel' : '') + (picked ? ' picked' : '') + (worst ? ` has-req req-${worst}` : ''),
@@ -484,8 +538,7 @@ function viewCalendar() {
   grid.addEventListener('focusout', e => { const b = barOf(e); if (b) highlight(b, false); });
   // Forklaring til prikkerne i cellerne står under kalenderen
   const dotKey = el('div', { class: 'dot-key', role: 'group', 'aria-label': 'Forklaring til prikkerne' },
-    el('span', { class: 'key' }, el('span', { class: 'dot g' }), 'Gulvvagt'),
-    el('span', { class: 'key' }, el('span', { class: 'dot k' }), 'På kald'));
+    deptCfg().avail_modes.map(m => el('span', { class: 'key' }, el('span', { class: 'dot ' + MODE_DOT[m] }), MODE_LABEL[m])));
   // Månedsvælger og personer står på samme linje, når der er plads (ellers falder personerne ned under)
   const left = el('div', { class: 'cal-main' }, el('div', { class: 'cal-top' }, toolbar, legend), grid, dotKey);
   // Kolonnen til højre: overblik (I dag og ønsker om støtte) øverst, dagspanelet under
@@ -525,8 +578,12 @@ function multiBar() {
     el('button', { type: 'button', class: 'btn ghost', text: 'Annuller', onclick: () => { S.multi = false; S.picked.clear(); renderApp(); } }));
 }
 
+// Typen man sidst valgte, hvis afdelingen har den, ellers afdelingens første
+const defaultMode = () => (S.form && deptCfg().avail_modes.includes(S.form.mode)) ? S.form.mode : deptCfg().avail_modes[0];
+// Man skriver sig selv på. En administrator der ser en anden afdeling skriver en af dens medarbejdere på.
+const defaultMember = () => activeMembers().some(m => m.id === S.me.id) ? S.me.id : ((activeMembers()[0] || {}).id || S.me.id);
 function newForm(memberId) {
-  return { id: null, memberId: memberId || S.me.id, start: '08:00', end: '16:00', mode: (S.form && S.form.mode) || 'gulvvagt', note: '' };
+  return { id: null, memberId: memberId || defaultMember(), start: '08:00', end: '16:00', mode: defaultMode(), note: '' };
 }
 
 function dayPanel(byDay) {
@@ -537,11 +594,10 @@ function dayPanel(byDay) {
   }
   const d = parseISO(S.selected);
   const items = byDay[S.selected] || [];
-  const g = new Set(items.filter(a => a.mode === 'gulvvagt').map(a => a.member_id)).size;
-  const k = new Set(items.filter(a => a.mode === 'kald').map(a => a.member_id)).size;
+  const counts = summarizeItems(items);
 
   panel.append(el('div', { class: 'panel-head' },
-    el('div', {}, el('h2', { text: fmtLong(d) }), el('p', { class: 'sum', text: items.length ? countsText({ g, k }) : 'Ingen har meldt sig på denne dag.' })),
+    el('div', {}, el('h2', { text: fmtLong(d) }), el('p', { class: 'sum', text: items.length ? countsText(counts) : 'Ingen har meldt sig på denne dag.' })),
     el('button', { type: 'button', class: 'icon-btn panel-close', 'aria-label': 'Luk', text: '×', onclick: closeSheet })));
 
   const reqs = S.requests.filter(r => r.day === S.selected);
@@ -550,11 +606,13 @@ function dayPanel(byDay) {
     const st = reqState(r, cov);
     const nameOf = a => { const m = memberById(a.member_id); return `${m ? m.name : ''} ${rangeText(a)}`; };
     const gap = cov && cov.gaps[0];
-    const by = memberById(r.created_by);
+    const byName = (memberById(r.created_by) || {}).name || r.created_by_name;
     const actions = [];
     if (gap && !isViewer()) {
+      // "Skriv mig på som gulvvagt 12–16", "… til stafet …", "… kald …" (altså "Skriv mig på kald"), "… til administrative opgaver …"
+      const takeText = { gulvvagt: r.kind === 'stafet' ? 'til stafet' : 'som gulvvagt', kald: 'kald', admin: 'til administrative opgaver' }[coverMode(r.kind)];
       actions.push(el('button', { type: 'button', class: 'btn small primary', 'data-fk': 'rq-take-' + r.id,
-        text: `Skriv mig på ${r.kind === 'stafet' ? 'til stafet' : 'som gulvvagt'} ${hourText(gap[0])}–${hourText(gap[1])}`, onclick: () => takeGap(gap, 'gulvvagt') }));
+        text: `Skriv mig på ${takeText} ${hourText(gap[0])}–${hourText(gap[1])}`, onclick: () => takeGap(gap, coverMode(r.kind)) }));
     }
     if (canEditReq(r)) {
       actions.push(el('button', { type: 'button', class: 'btn small', 'data-fk': 'rq-notify-' + r.id, text: 'Send besked', onclick: () => noticeChooser(r) }));
@@ -565,15 +623,15 @@ function dayPanel(byDay) {
         el('span', { class: 'rq-what', text: reqWhat(r) }),
         cov ? el('span', { class: 'rq-state', text: reqStateText(cov.state, r.kind) }) : null),
       r.note ? el('p', { class: 'rq-note', text: r.note }) : null,
-      cov && cov.segs.length ? el('p', { class: 'rq-cover', text: (r.kind === 'stafet' ? 'Dækket af: ' : 'Gulvvagt: ') + cov.segs.map(nameOf).join(', ') }) : null,
-      cov && cov.gaps.length ? el('p', { class: 'rq-cover', text: `Mangler ${r.kind === 'stafet' ? 'stafet' : 'gulvvagt'} ` + cov.gaps.map(g => `${hourText(g[0])}–${hourText(g[1])}`).join(', ') + '.' }) : null,
-      by ? el('p', { class: 'rq-by', text: `Ønsket af ${by.name}` }) : null,
+      cov && cov.segs.length ? el('p', { class: 'rq-cover', text: COVER_BY[r.kind] + cov.segs.map(nameOf).join(', ') }) : null,
+      cov && cov.gaps.length ? el('p', { class: 'rq-cover', text: `Mangler ${MISSING_NOUN[r.kind]} ` + cov.gaps.map(g => `${hourText(g[0])}–${hourText(g[1])}`).join(', ') + '.' }) : null,
+      byName ? el('p', { class: 'rq-by', text: `Ønsket af ${byName}` }) : null,
       actions.length ? el('div', { class: 'rq-actions' }, actions) : null);
   };
   const special = reqs.filter(isSpecial), other = reqs.filter(r => !isSpecial(r));
   if (special.length) {
     panel.append(el('section', { class: 'reqs' },
-      el('h3', { text: special.length === 1 ? 'Særligt ønske om støtte fra driften' : 'Særlige ønsker om støtte fra driften' }),
+      el('h3', { text: hasInfoKinds() ? (special.length === 1 ? 'Særligt ønske om støtte fra driften' : 'Særlige ønsker om støtte fra driften') : (special.length === 1 ? 'Ønske om støtte fra driften' : 'Ønsker om støtte fra driften') }),
       special.map(reqCard)));
   }
   if (other.length) {
@@ -588,7 +646,7 @@ function dayPanel(byDay) {
       el('div', { class: 'pers-name' }, m.name, el('small', { text: ROLES[m.role] || '' })),
       items.filter(a => a.member_id === m.id).map(a => el('div', { class: 'slot' },
         el('span', { class: 'time', text: `${a.start}–${a.end}` }),
-        el('span', { class: 'badge' }, el('span', { class: 'dot ' + (a.mode === 'gulvvagt' ? 'g' : 'k'), vars: { '--c': colorOf(m.id) } }), MODE_LABEL[a.mode]),
+        el('span', { class: 'badge' }, el('span', { class: 'dot ' + MODE_DOT[a.mode], vars: { '--c': colorOf(m.id) } }), MODE_LABEL[a.mode]),
         !isViewer() && (S.me.is_admin || a.member_id === S.me.id) ? el('span', { class: 'slot-actions' },
           el('button', { type: 'button', class: 'btn small ghost', text: 'Ret', 'data-fk': 'edit-' + a.id, onclick: () => editSlot(a) }),
           el('button', { type: 'button', class: 'btn small ghost', text: 'Fjern', 'data-fk': 'del-' + a.id, onclick: () => removeSlot(a) })) : null,
@@ -612,9 +670,16 @@ function dayPanel(byDay) {
   return panel;
 }
 
+// Antal personer pr. type tilmelding (en person tæller kun én gang pr. type)
+function summarizeItems(items) {
+  const s = { gulvvagt: new Set(), kald: new Set(), admin: new Set() };
+  for (const a of items) if (s[a.mode]) s[a.mode].add(a.member_id);
+  return { g: s.gulvvagt.size, k: s.kald.size, a: s.admin.size };
+}
+
 // Fylder tilmeldingsformularen ud med det tidsrum, der mangler dækning
 function takeGap(gap, mode) {
-  S.form = Object.assign(newForm(), { start: gap[0], end: gap[1], mode: mode || 'gulvvagt' });
+  S.form = Object.assign(newForm(), { start: gap[0], end: gap[1], mode: mode || defaultMode() });
   S.sheetOpen = true;
   renderApp();
   const f = document.getElementById('avail-form');
@@ -627,7 +692,7 @@ const canEditReq = r => !isViewer() || (!!S.me && r.created_by === S.me.id);
 function groupFieldset(selected, legend, hint) {
   return el('fieldset', { class: 'groups' },
     el('legend', { text: legend }),
-    el('div', { class: 'group-row' }, REQ_GROUPS.map(([v, label]) => {
+    el('div', { class: 'group-row' }, REQ_GROUPS.filter(([v]) => S.members.some(m => m.active && m.role === v && m.department_id === S.dept)).map(([v, label]) => {
       const box = el('input', { type: 'checkbox', value: v, checked: selected.has(v) });
       box.addEventListener('change', () => { if (box.checked) selected.add(v); else selected.delete(v); });
       return el('label', { class: 'check' }, box, label);
@@ -635,13 +700,18 @@ function groupFieldset(selected, legend, hint) {
     hint ? el('p', { class: 'hint', text: hint }) : null);
 }
 
-// Tilføj eller ret et ønske om støtte fra driften. Særligt ønske: Gulvvagt eller Stafet (begge med tidsrum). Øvrigt ønske: På kald eller administrative opgaver.
+// Tilføj eller ret et ønske om støtte fra driften. Typerne afhænger af afdelingen.
+// Teknisk Support: særligt ønske (Gulvvagt eller Stafet, begge med tidsrum) eller øvrigt ønske (På kald eller administrative opgaver).
+// Kundeservice: På kald eller administrative opgaver, begge med tidsrum og dækningsstatus.
 function requestDialog(req, day) {
   if (req && !canEditReq(req)) return;
-  const other = !!req && !isSpecial(req);
+  const cfg = deptCfg();
+  const specialKinds = cfg.request_kinds.filter(k => cfg.coverage[k]);
+  const infoKinds = cfg.request_kinds.filter(k => !cfg.coverage[k]);
+  const isInfo = !!req && infoKinds.includes(req.kind);
   const st = req
-    ? { day: req.day, group: other ? 'oevrigt' : req.kind, sub: other ? req.kind : 'kald', timed: !!req.start, start: req.start || '08:00', end: req.end || '16:00', note: req.note || '' }
-    : { day, group: 'gulvvagt', sub: 'kald', timed: false, start: '08:00', end: '16:00', note: '' };
+    ? { day: req.day, group: isInfo ? 'oevrigt' : req.kind, sub: isInfo ? req.kind : (infoKinds[0] || 'kald'), timed: !!req.start, start: req.start || '08:00', end: req.end || '16:00', note: req.note || '' }
+    : { day, group: specialKinds[0], sub: infoKinds[0] || 'kald', timed: false, start: '08:00', end: '16:00', note: '' };
   const kindOf = () => st.group === 'oevrigt' ? st.sub : st.group;
   const groups = new Set();
   openDialog({
@@ -654,7 +724,7 @@ function requestDialog(req, day) {
       const noteIn = el('textarea', { id: 'rq-note', maxlength: 300, oninput: e => { st.note = e.target.value; } }, st.note);
       const noteText = () => kindOf() === 'admin' ? 'Hvad drejer det sig om?' : 'Bemærkning (valgfri)';
       const noteLbl = el('label', { for: 'rq-note', text: noteText() });
-      // Gulvvagt, Stafet og På kald skal have et tidsrum. Administrative opgaver kan have et, men behøver det ikke.
+      // Typer med dækningsstatus og På kald skal have et tidsrum. Administrative opgaver uden dækningsstatus kan have et, men behøver det ikke.
       // Stafet foreslår aftentidsrummet 16-21, så længe tidsrummet ikke er rettet.
       const needsTime = () => timeRequired(kindOf());
       const suggestTimes = () => {
@@ -668,21 +738,14 @@ function requestDialog(req, day) {
       const draw = () => {
         timedRow.hidden = needsTime();
         if (!(needsTime() || st.timed)) { pick.replaceChildren(); return; }
-        const startSel = selectEl(TIMES, st.start, v => { st.start = v; }, { 'aria-label': 'Fra klokken' });
-        const endSel = selectEl(END_TIMES, st.end, v => { st.end = v; }, { 'aria-label': 'Til klokken' });
-        pick.replaceChildren(
-          el('div', { class: 'row' }, el('div', { class: 'field' }, startSel), el('div', { class: 'field' }, endSel)),
-          el('div', { class: 'presets' }, PRESETS.map(([label, a, b]) => el('button', {
-            type: 'button', class: 'btn small', text: label,
-            onclick: () => { st.start = a; st.end = b; startSel.value = a; endSel.value = b; },
-          }))));
+        pick.replaceChildren(timeFields(st));
       };
       const refresh = () => { err.textContent = ''; noteLbl.textContent = noteText(); suggestTimes(); draw(); };
       const subField = el('div', { class: 'field' }, el('span', { class: 'lbl', id: 'rq-sub-lbl', text: 'Øvrigt ønske om støtte til' }),
-        segmented('rq-sub', [['kald', 'På kald'], ['admin', 'Administrative opgaver']], st.sub, v => { st.sub = v; refresh(); }));
+        segmented('rq-sub', infoKinds.map(k => [k, REQ_LABEL[k]]), st.sub, v => { st.sub = v; refresh(); }));
       subField.hidden = st.group !== 'oevrigt';
       subField.lastChild.setAttribute('aria-labelledby', 'rq-sub-lbl');
-      const kindSeg = segmented('rq-kind', [['gulvvagt', 'Gulvvagt'], ['stafet', 'Stafet'], ['oevrigt', 'Øvrigt ønske']], st.group, v => { st.group = v; subField.hidden = v !== 'oevrigt'; refresh(); });
+      const kindSeg = segmented('rq-kind', specialKinds.map(k => [k, REQ_LABEL[k]]).concat(infoKinds.length ? [['oevrigt', 'Øvrigt ønske']] : []), st.group, v => { st.group = v; subField.hidden = v !== 'oevrigt'; refresh(); });
       kindSeg.setAttribute('aria-labelledby', 'rq-kind-lbl');
       draw();
       let armed = false;
@@ -695,6 +758,7 @@ function requestDialog(req, day) {
         dlg.close(); toast('Ønske slettet'); reload();
       });
       const form = el('form', { class: 'dlg-body', style: 'padding:0', novalidate: true },
+        S.departments.length > 1 ? el('p', { class: 'dept-note' }, 'Afdeling: ', el('b', { text: cfg.name })) : null,
         el('div', { class: 'field' }, el('label', { for: 'rq-day', text: 'Dato' }), dayIn),
         el('div', { class: 'field' }, el('span', { class: 'lbl', id: 'rq-kind-lbl', text: 'Der ønskes støtte som' }), kindSeg),
         subField,
@@ -708,11 +772,12 @@ function requestDialog(req, day) {
         if (!st.day) { err.textContent = 'Vælg en dato.'; dayIn.focus(); return; }
         const kind = kindOf();
         const withTime = needsTime() || st.timed;
-        if (withTime && st.end <= st.start) { err.textContent = 'Sluttidspunktet skal være efter starttidspunktet.'; return; }
+        const te = withTime ? timeErr(st) : '';
+        if (te) { err.textContent = te; return; }
         if (kind === 'admin' && !st.note.trim()) { err.textContent = 'Skriv kort, hvad den administrative opgave drejer sig om.'; noteIn.focus(); return; }
         submit.disabled = true;
         const payload = { day: st.day, kind, start: withTime ? st.start : '', end: withTime ? st.end : '', note: st.note };
-        const r = req ? await api('request_update', Object.assign({ id: req.id }, payload)) : await api('request_add', payload);
+        const r = req ? await api('request_update', Object.assign({ id: req.id }, payload)) : await api('request_add', Object.assign({ department: S.dept }, payload));
         submit.disabled = false;
         if (!r.ok) { err.textContent = r.error || 'Det lykkedes ikke. Prøv igen.'; return; }
         dlg.close();
@@ -767,12 +832,13 @@ async function sendNotice(req, groups) {
 function noticeDialog(req, recipients) {
   const when = fmtLong(parseISO(req.day));
   const cov = coverageOf(req, S.avail.filter(a => a.day === req.day));
-  const lines = ['Hej,', '', `${S.me.name} har oprettet et ønske om støtte fra driften:`, '', `${when}: ${reqWhat(req)}`];
+  const deptName = deptCfg().name;
+  const lines = ['Hej,', '', `${S.me.name} har oprettet et ønske om støtte fra driften${deptName ? ' (' + deptName + ')' : ''}:`, '', `${when}: ${reqWhat(req)}`];
   if (req.note) lines.push(`Bemærkning: ${req.note}`);
   if (cov) lines.push('Status: ' + reqStateText(cov.state, req.kind) + (cov.gaps.length ? ' ' + cov.gaps.map(g => `${hourText(g[0])}–${hourText(g[1])}`).join(', ') : ''));
   lines.push('', 'Se ønsket og skriv dig på i driftskalenderen:', location.origin + location.pathname, '', 'Venlig hilsen', S.me.name);
   const text = lines.join('\n');
-  const subject = `Ønske om støtte fra driften: ${reqKindLabel(req.kind)} ${when}`;
+  const subject = `Ønske om støtte fra driften${deptName ? ' (' + deptName + ')' : ''}: ${reqKindLabel(req.kind)} ${when}`;
   const emails = recipients.map(x => x.email).join(', ');
   const href = `mailto:${recipients.map(x => x.email).join(',')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text.replace(/\n/g, '\r\n'))}`;
   openDialog({
@@ -827,13 +893,57 @@ function segmented(name, options, value, onchange) {
     const input = el('input', { type: 'radio', name, id, value: v, checked: v === value });
     input.addEventListener('change', () => { if (input.checked) onchange(v); });
     return el('label', { for: id, class: 'seg-opt ' + (kind || '') },
-      input, el('span', {}, pip === undefined ? null : el('i', { class: 'pip' + (pip ? ' fill' : '') }), label));
+      input, el('span', {}, pip === undefined ? null : el('i', { class: 'pip' + (pip === 'sq' ? ' sq' : pip ? ' fill' : '') }), label));
   }));
 }
 
+// Åbningstid (Kundeservice 08-16): som standard kan man kun vælge tidsrum inden for den. Uden for åbningstid skal vælges specifikt.
+function openWindow() {
+  const c = deptCfg();
+  return c.open_from && c.open_to ? [c.open_from, c.open_to] : null;
+}
+function timeErr(st) {
+  if (st.end <= st.start) return 'Sluttidspunktet skal være efter starttidspunktet.';
+  const win = openWindow();
+  if (win && !st.outside && (st.start < win[0] || st.end > win[1])) {
+    return 'Tidsrummet ligger uden for åbningstiden. Sæt flueben ved "Uden for åbningstid", hvis det er meningen.';
+  }
+  return '';
+}
+// Fra og til (kvarterer) med genveje. st.start og st.end rettes direkte. Afdelinger med åbningstid får et flueben til tid uden for åbningstid.
+function timeFields(st) {
+  const win = openWindow();
+  if (win && st.outside === undefined) st.outside = st.start < win[0] || st.end > win[1];
+  const dyn = el('div', { class: 'time-dyn' });
+  const draw = () => {
+    const limited = !!win && !st.outside;
+    if (limited) {
+      if (st.start < win[0] || st.start >= win[1]) st.start = win[0];
+      if (st.end > win[1] || st.end <= win[0]) st.end = win[1];
+      if (st.end <= st.start) { st.start = win[0]; st.end = win[1]; }
+    }
+    const startSel = selectEl(limited ? TIMES.filter(t => t >= win[0] && t < win[1]) : TIMES, st.start, v => { st.start = v; }, { 'aria-label': 'Fra klokken' });
+    const endSel = selectEl(limited ? END_TIMES.filter(t => t > win[0] && t <= win[1]) : END_TIMES, st.end, v => { st.end = v; }, { 'aria-label': 'Til klokken' });
+    dyn.replaceChildren(
+      el('div', { class: 'row' }, el('div', { class: 'field' }, startSel), el('div', { class: 'field' }, endSel)),
+      el('div', { class: 'presets' }, PRESETS.filter(([, a, b]) => !limited || (a >= win[0] && b <= win[1])).map(([label, a, b]) => el('button', {
+        type: 'button', class: 'btn small', text: label,
+        onclick: () => { st.start = a; st.end = b; startSel.value = a; endSel.value = b; },
+      }))));
+  };
+  draw();
+  const box = el('div', { class: 'time-fields' }, dyn);
+  if (win) {
+    const chk = el('input', { type: 'checkbox', checked: !!st.outside });
+    chk.addEventListener('change', () => { st.outside = chk.checked; draw(); });
+    box.append(
+      el('label', { class: 'check outside-row' }, chk, `Uden for åbningstid (der er åbent ${hourText(win[0])}–${hourText(win[1])})`),
+      el('span', { class: 'hint', text: 'Vælg kun dette, hvis du specifikt tilbyder hjælp uden for åbningstiden.' }));
+  }
+  return box;
+}
+
 function availFields(st, prefix, memberChoice) {
-  const startSel = selectEl(TIMES, st.start, v => { st.start = v; }, { 'aria-label': 'Fra klokken' });
-  const endSel = selectEl(END_TIMES, st.end, v => { st.end = v; }, { 'aria-label': 'Til klokken' });
   const nodes = [];
   if (memberChoice) {
     const sel = el('select', { id: prefix + '-who' }, activeMembers().map(m => el('option', { value: m.id, text: m.name + (m.id === S.me.id ? ' (dig)' : '') })));
@@ -842,15 +952,9 @@ function availFields(st, prefix, memberChoice) {
     nodes.push(el('div', { class: 'field' }, el('label', { for: prefix + '-who', text: 'Skriv på for' }), sel));
   }
   nodes.push(
-    el('div', { class: 'field' }, el('span', { class: 'lbl', text: 'Tidsrum' }),
-      el('div', { class: 'row' },
-        el('div', { class: 'field' }, startSel), el('div', { class: 'field' }, endSel)),
-      el('div', { class: 'presets' }, PRESETS.map(([label, a, b]) => el('button', {
-        type: 'button', class: 'btn small', text: label,
-        onclick: () => { st.start = a; st.end = b; startSel.value = a; endSel.value = b; },
-      })))),
+    el('div', { class: 'field' }, el('span', { class: 'lbl', text: 'Tidsrum' }), timeFields(st)),
     el('div', { class: 'field' }, el('span', { class: 'lbl', text: 'Jeg stiller op som' }),
-      segmented(prefix + '-mode', [['gulvvagt', 'Gulvvagt', 'g', true], ['kald', 'På kald', 'k', false]], st.mode, v => { st.mode = v; })),
+      segmented(prefix + '-mode', deptCfg().avail_modes.map(m => [m, MODE_LABEL[m], MODE_DOT[m], m === 'gulvvagt' ? true : m === 'kald' ? false : 'sq']), st.mode, v => { st.mode = v; })),
     el('div', { class: 'field' }, el('label', { for: prefix + '-note', text: 'Bemærkning (valgfri)' }),
       el('input', { type: 'text', id: prefix + '-note', maxlength: 200, value: st.note, placeholder: 'fx kan rykke ud ved behov', oninput: e => { st.note = e.target.value; } })));
   return nodes;
@@ -868,7 +972,8 @@ function availForm() {
       st.id ? el('button', { type: 'button', class: 'btn', text: 'Annuller', onclick: () => { S.form = newForm(); renderApp(); } }) : null));
   form.addEventListener('submit', async ev => {
     ev.preventDefault();
-    if (st.end <= st.start) { err.textContent = 'Sluttidspunktet skal være efter starttidspunktet.'; return; }
+    const te = timeErr(st);
+    if (te) { err.textContent = te; return; }
     err.textContent = '';
     submit.disabled = true;
     const payload = { start: st.start, end: st.end, mode: st.mode, note: st.note };
@@ -887,7 +992,7 @@ function availForm() {
 
 function bulkDialog() {
   const days = [...S.picked].sort();
-  const st = { memberId: S.me.id, start: '08:00', end: '16:00', mode: (S.form && S.form.mode) || 'gulvvagt', note: '' };
+  const st = { memberId: defaultMember(), start: '08:00', end: '16:00', mode: defaultMode(), note: '' };
   openDialog({
     title: `Skriv dig på ${days.length} ${days.length === 1 ? 'dag' : 'dage'}`,
     build(body, dlg) {
@@ -901,7 +1006,8 @@ function bulkDialog() {
           el('button', { type: 'button', class: 'btn', text: 'Annuller', onclick: () => dlg.close() }), submit));
       form.addEventListener('submit', async ev => {
         ev.preventDefault();
-        if (st.end <= st.start) { err.textContent = 'Sluttidspunktet skal være efter starttidspunktet.'; return; }
+        const te = timeErr(st);
+        if (te) { err.textContent = te; return; }
         submit.disabled = true;
         const r = await api('avail_bulk', { days, member_id: st.memberId, start: st.start, end: st.end, mode: st.mode, note: st.note });
         submit.disabled = false;
@@ -920,8 +1026,12 @@ function bulkDialog() {
 /* ---------- Opgaver ---------- */
 function viewTasks() {
   const me = S.me.id;
-  let people = taskMembers().sort((a, b) => (a.id === me ? -1 : 0) - (b.id === me ? -1 : 0));
+  // En teamleder har ikke selv opgaver, men ser først sine egne medarbejdere. Ellers kommer en selv først.
+  const isLead = S.me.role === 'teamleder';
+  const rank = m => m.id === me ? 0 : isLead && m.team_leader_id === me ? 1 : 2;
+  let people = taskMembers().sort((a, b) => rank(a) - rank(b));
   if (S.onlyMine && meHasTasks()) people = people.filter(m => m.id === me);
+  else if (S.onlyMine && isLead) people = people.filter(m => m.team_leader_id === me);
   const doneCount = S.tasks.filter(t => t.done).length;
   // Sorteret efter det tidspunkt opgaven først kræver noget: deadline, eller periodens start. Uden tid til sidst.
   const when = t => t.due_date || t.start_date || '9999';
@@ -930,7 +1040,7 @@ function viewTasks() {
   const head = el('div', { class: 'page-head' },
     el('h1', { text: 'Opgaver' }),
     el('div', { class: 'tools' },
-      !meHasTasks() ? null : el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: S.onlyMine, 'data-fk': 'only-mine', onchange: e => { S.onlyMine = e.target.checked; renderApp(); } }), 'Kun mine'),
+      !(meHasTasks() || isLead) ? null : el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: S.onlyMine, 'data-fk': 'only-mine', onchange: e => { S.onlyMine = e.target.checked; renderApp(); } }), isLead ? 'Kun mine medarbejdere' : 'Kun mine'),
       el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: S.showDone, 'data-fk': 'show-done', onchange: e => { S.showDone = e.target.checked; renderApp(); } }), `Vis udførte (${doneCount})`)));
 
   const cols = people.map(m => {
@@ -942,16 +1052,18 @@ function viewTasks() {
     const group = (label, kind, list) => el('section', { class: 'group', 'aria-label': label },
       el('h3', { class: 'group-h' }, el('span', { class: 'flag' + (kind === 'soft' ? ' soft' : '') }), label, el('span', { class: 'n', text: String(list.length) })),
       list.length ? el('ul', { class: 'tasks' }, list.map(taskRow)) : el('p', { class: 'none-yet', text: 'Ingen opgaver her.' }));
+    const lead = m.team_leader_id ? memberById(m.team_leader_id) : null;
     return el('section', { class: 'person', vars: { '--c': colorOf(m.id) }, 'aria-label': `Opgaver for ${m.name}` },
       el('div', { class: 'person-head' },
         el('h2', { text: m.name }),
         el('span', { class: 'role', text: m.id === me ? `${ROLES[m.role] || ''} (dig)` : (ROLES[m.role] || '') })),
+      lead ? el('p', { class: 'person-sub', text: `Teamleder: ${lead.name}` }) : null,
       group(PRIO_LABEL.fast, 'fast', fast),
       group(PRIO_LABEL.fleksibel, 'soft', flex),
       S.showDone && done.length ? el('section', { class: 'group', 'aria-label': 'Udførte opgaver' },
         el('h3', { class: 'group-h' }, 'Udført', el('span', { class: 'n', text: String(done.length) })),
         el('ul', { class: 'tasks' }, done.map(taskRow))) : null,
-      isViewer() ? null : el('div', {}, el('button', { type: 'button', class: 'btn small', text: 'Tilføj opgave', 'data-fk': 'add-' + m.id, onclick: () => taskDialog(null, m.id) })));
+      canTaskFor(m) ? el('div', {}, el('button', { type: 'button', class: 'btn small', text: 'Tilføj opgave', 'data-fk': 'add-' + m.id, onclick: () => taskDialog(null, m.id) })) : null);
   });
   return [head, cols.length ? el('div', { class: 'people' }, cols) : el('p', { class: 'loading', text: 'Ingen medarbejdere at vise.' })];
 }
@@ -991,7 +1103,8 @@ function taskWhen(t) {
 
 function taskRow(t) {
   const w = taskWhen(t);
-  const box = el('input', { type: 'checkbox', checked: t.done, disabled: isViewer(), 'aria-label': isViewer() ? (t.done ? `"${t.title}" er udført` : `"${t.title}" er ikke udført`) : `Markér "${t.title}" som udført`, 'data-fk': 'chk-' + t.id });
+  const mayEdit = canTaskFor(memberById(t.assignee_id));
+  const box = el('input', { type: 'checkbox', checked: t.done, disabled: !mayEdit, 'aria-label': !mayEdit ? (t.done ? `"${t.title}" er udført` : `"${t.title}" er ikke udført`) : `Markér "${t.title}" som udført`, 'data-fk': 'chk-' + t.id });
   box.addEventListener('change', () => toggleTask(t, box.checked));
   return el('li', { class: `task ${t.priority}` + (t.done ? ' done' : '') },
     box,
@@ -1004,7 +1117,7 @@ function taskRow(t) {
 }
 
 async function toggleTask(t, done) {
-  if (isViewer()) return;
+  if (!canTaskFor(memberById(t.assignee_id))) return;
   const before = { done: t.done, done_at: t.done_at };
   t.done = done; t.done_at = done ? new Date().toISOString() : null;
   renderApp();
@@ -1018,7 +1131,7 @@ async function toggleTask(t, done) {
   reload();
 }
 
-// Skrivebeskyttet opgavevisning til Drift: samme oplysninger, ingen felter at rette i og ingen knapper der ændrer noget.
+// Skrivebeskyttet opgavevisning (Drift og opgaver der ligger hos andre): samme oplysninger, ingen felter at rette i og ingen knapper der ændrer noget.
 function taskView(task) {
   const who = memberById(task.assignee_id);
   const w = taskWhen(task);
@@ -1039,7 +1152,7 @@ function taskView(task) {
 }
 
 function taskDialog(task, assigneeId) {
-  if (isViewer()) { if (task) taskView(task); return; }
+  if (!canTaskFor(memberById(task ? task.assignee_id : assigneeId))) { if (task) taskView(task); return; }
   // Tid er valgfri: ingen, en deadline eller en periode (fra og til), aldrig begge.
   const st = task
     ? { title: task.title, details: task.details || '', priority: task.priority, assignee: task.assignee_id,
@@ -1051,7 +1164,9 @@ function taskDialog(task, assigneeId) {
     build(body, dlg) {
       const err = el('p', { class: 'err', role: 'alert' });
       const submit = el('button', { type: 'submit', class: 'btn primary', text: task ? 'Gem' : 'Tilføj opgave' });
-      const who = el('select', { id: 'task-who' }, taskMembers().map(m => el('option', { value: m.id, text: m.name })));
+      // Ansvarlig: kun dem man må give opgaver (en TUK kun sig selv)
+      const whoList = taskMembers().filter(canTaskFor);
+      const who = el('select', { id: 'task-who', disabled: whoList.length < 2 }, whoList.map(m => el('option', { value: m.id, text: m.name })));
       who.value = st.assignee;
       who.addEventListener('change', () => { st.assignee = who.value; });
       const title = el('input', { type: 'text', id: 'task-title', maxlength: 200, value: st.title, required: true, oninput: e => { st.title = e.target.value; } });
@@ -1126,15 +1241,41 @@ function taskDialog(task, assigneeId) {
   });
 }
 
-/* ---------- Medarbejdere (administrator ændrer, Drift kan kun se) ---------- */
+/* ---------- Medarbejdere (administrator ændrer, Drift og teamledere kan se) ---------- */
+// Medarbejderne grupperet efter afdeling, og Drift for sig. Administrator og Drift ser alle afdelinger, en teamleder sin egen.
+function memberGroups() {
+  const groups = S.departments.map(d => ({ id: d.id, title: d.name, list: S.members.filter(m => m.role !== 'drift' && m.department_id === d.id) }));
+  const drift = S.members.filter(m => m.role === 'drift');
+  if (drift.length) groups.push({ id: null, title: 'Drift (kun læseadgang)', list: drift });
+  return groups;
+}
+// Linjen under navnet: teamlederen for en medarbejder, antal medarbejdere for en teamleder
+function memberSub(m) {
+  if (m.role === 'teamleder') {
+    const n = S.members.filter(x => x.active && x.team_leader_id === m.id).length;
+    return `${n} ${n === 1 ? 'medarbejder' : 'medarbejdere'}`;
+  }
+  if (TASK_ROLES.includes(m.role)) {
+    const l = memberById(m.team_leader_id);
+    return l ? `Teamleder: ${l.name}` : 'Ingen teamleder';
+  }
+  return '';
+}
+
 function viewMembersReadOnly() {
-  const people = S.members.filter(m => m.active);
-  const rows = people.map(m => el('li', { class: 'mrow ro' },
-    el('div', { class: 'm-name', vars: { '--c': colorOf(m.id) } }, el('span', { class: 'sw' }), el('b', { text: m.name + (m.id === S.me.id ? ' (dig)' : '') })),
-    el('div', { class: 'm-status', text: ROLES[m.role] || '' })));
+  const groups = memberGroups().map(g => Object.assign({}, g, { list: g.list.filter(m => m.active) })).filter(g => g.list.length);
+  const sections = groups.map(g => el('section', { class: 'mgroup', 'aria-label': g.title },
+    el('h2', { class: 'mgroup-h', text: g.title }),
+    el('ul', { class: 'mlist' }, g.list.map(m => {
+      const sub = memberSub(m);
+      return el('li', { class: 'mrow ro' },
+        el('div', { class: 'm-name', vars: { '--c': colorOf(m.id) } }, el('span', { class: 'sw' }),
+          el('div', {}, el('b', { text: m.name + (m.id === S.me.id ? ' (dig)' : '') }), sub ? el('small', { text: sub }) : null)),
+        el('div', { class: 'm-status', text: ROLES[m.role] || '' }));
+    }))));
   return [
     el('div', { class: 'page-head' }, el('h1', { text: 'Medarbejdere' })),
-    rows.length ? el('ul', { class: 'mlist' }, rows) : el('p', { class: 'loading', text: 'Ingen medarbejdere at vise.' })];
+    sections.length ? sections : el('p', { class: 'loading', text: 'Ingen medarbejdere at vise.' })];
 }
 
 function viewMembers() {
@@ -1143,28 +1284,63 @@ function viewMembers() {
     el('h1', { text: 'Medarbejdere' }),
     el('div', { class: 'tools' }, el('button', { type: 'button', class: 'btn primary', text: 'Inviter medarbejder', 'data-fk': 'invite', onclick: inviteDialog })));
   const fmtDate = s => new Date(s).toLocaleDateString('da-DK', { day: 'numeric', month: 'short' });
-  const rows = S.members.map(m => {
+  const deptName = id => (S.departments.find(d => d.id === id) || {}).name || '';
+  const row = m => {
     const self = m.id === S.me.id;
     const status = !m.active ? 'Deaktiveret'
       : m.invited ? (m.invite_pending ? 'Inviteret, har ikke oprettet adgang endnu' : 'Invitationen er udløbet')
       : (m.last_login ? `Aktiv, sidst logget ind ${fmtDate(m.last_login)}` : 'Aktiv');
+    const sub = memberSub(m);
     const roleSel = el('select', { 'aria-label': `Rolle for ${m.name}` }, Object.entries(ROLES).map(([v, l]) => el('option', { value: v, text: l })));
     roleSel.value = m.role;
-    roleSel.addEventListener('change', async () => { const r = await api('member_update', { id: m.id, role: roleSel.value }); toast(r.ok ? 'Rolle ændret' : r.error, !r.ok); reload(); });
+    roleSel.addEventListener('change', async () => {
+      const body = { id: m.id, role: roleSel.value };
+      // En Drift-bruger har ingen afdeling: bliver personen medarbejder, lægges personen i den afdeling der sidst blev vist
+      if (m.role === 'drift' && roleSel.value !== 'drift') body.department = S.dept;
+      const r = await api('member_update', body);
+      toast(r.ok ? (body.department ? `Rolle ændret. Afdeling: ${deptName(body.department)}` : 'Rolle ændret') : r.error, !r.ok);
+      reload();
+    });
+    // Afdeling og teamleder. Skifter en medarbejder afdeling, ryddes teamlederen, og en ny vælges bagefter.
+    const deptSel = m.role === 'drift' ? null : el('select', { 'aria-label': `Afdeling for ${m.name}` }, S.departments.map(d => el('option', { value: d.id, text: d.name })));
+    if (deptSel) {
+      deptSel.value = m.department_id;
+      deptSel.addEventListener('change', async () => {
+        const r = await api('member_update', { id: m.id, department: deptSel.value });
+        toast(r.ok ? `Flyttet til ${deptName(deptSel.value)}` : r.error, !r.ok);
+        reload();
+      });
+    }
+    let leadSel = null;
+    if (TASK_ROLES.includes(m.role)) {
+      const leaders = S.members.filter(l => l.role === 'teamleder' && l.department_id === m.department_id && (l.active || l.id === m.team_leader_id));
+      leadSel = el('select', { 'aria-label': `Teamleder for ${m.name}` }, [el('option', { value: '', text: 'Ingen teamleder' })].concat(leaders.map(l => el('option', { value: l.id, text: l.name }))));
+      leadSel.value = m.team_leader_id || '';
+      leadSel.addEventListener('change', async () => {
+        const r = await api('member_update', { id: m.id, team_leader_id: leadSel.value || null });
+        toast(r.ok ? 'Teamleder gemt' : r.error, !r.ok);
+        reload();
+      });
+    }
     const adm = el('input', { type: 'checkbox', checked: m.is_admin, disabled: self || m.role === 'drift' });
     adm.addEventListener('change', async () => { const r = await api('member_update', { id: m.id, is_admin: adm.checked }); toast(r.ok ? 'Gemt' : r.error, !r.ok); reload(); });
     return el('li', { class: 'mrow' + (m.active ? '' : ' off') },
       el('div', { class: 'm-name', vars: { '--c': colorOf(m.id) } }, el('span', { class: 'sw' }),
-        el('div', {}, el('b', { text: m.name + (self ? ' (dig)' : '') }), el('small', { text: (m.email ? (m.email.includes('@') ? m.email.slice(0, m.email.indexOf('@') + 1) : m.email) : 'Ikke oprettet endnu') + (m.role === 'drift' ? ' · kun læseadgang' : '') }))),
+        el('div', {}, el('b', { text: m.name + (self ? ' (dig)' : '') }),
+          el('small', { text: (m.email ? (m.email.includes('@') ? m.email.slice(0, m.email.indexOf('@') + 1) : m.email) : 'Ikke oprettet endnu') + (m.role === 'drift' ? ' · kun læseadgang' : '') }),
+          sub ? el('small', { class: 'm-sub', text: sub }) : null)),
       el('div', { class: 'm-status', text: status }),
       el('div', { class: 'm-actions' },
-        roleSel,
+        roleSel, deptSel, leadSel,
         el('label', { class: 'check' }, adm, 'Administrator'),
         self ? null : el('button', { type: 'button', class: 'btn small', text: 'Nyt invitationslink', onclick: () => reinvite(m) }),
         self ? null : el('button', { type: 'button', class: 'btn small' + (m.active ? ' danger' : ''), text: m.active ? 'Deaktiver' : 'Aktiver',
           onclick: async () => { const r = await api('member_update', { id: m.id, active: !m.active }); toast(r.ok ? (m.active ? 'Deaktiveret' : 'Aktiveret') : r.error, !r.ok); reload(); } })));
-  });
-  return [head, el('ul', { class: 'mlist' }, rows)];
+  };
+  const sections = memberGroups().filter(g => g.list.length || g.id).map(g => el('section', { class: 'mgroup', 'aria-label': g.title },
+    el('h2', { class: 'mgroup-h', text: g.title }),
+    g.list.length ? el('ul', { class: 'mlist' }, g.list.map(row)) : el('p', { class: 'none-yet', text: 'Ingen medarbejdere endnu. Brug Inviter medarbejder.' })));
+  return [head, sections];
 }
 
 function inviteLink(token) {
@@ -1172,7 +1348,7 @@ function inviteLink(token) {
 }
 
 function inviteDialog() {
-  const st = { name: '', email: '', role: 'teamleder', admin: false };
+  const st = { name: '', email: '', role: 'teamleder', admin: false, dept: S.dept || (S.departments[0] || {}).id, lead: '' };
   openDialog({
     title: 'Inviter medarbejder',
     build(body, dlg) {
@@ -1181,25 +1357,49 @@ function inviteDialog() {
       const role = el('select', { id: 'inv-role' }, Object.entries(ROLES).map(([v, l]) => el('option', { value: v, text: v === 'drift' ? 'Drift (kun læseadgang)' : l })));
       const adminBox = el('input', { type: 'checkbox', id: 'inv-admin', onchange: e => { st.admin = e.target.checked; } });
       const roleHint = el('span', { class: 'hint', id: 'inv-role-hint', text: '' });
+      // Afdeling (Drift ser dem alle) og teamleder (kun for TUK og ProblemManager, og kun en teamleder i samme afdeling)
+      const deptSel = el('select', { id: 'inv-dept' }, S.departments.map(d => el('option', { value: d.id, text: d.name })));
+      deptSel.value = st.dept;
+      const leadSel = el('select', { id: 'inv-lead' });
+      const deptField = el('div', { class: 'field' }, el('label', { for: 'inv-dept', text: 'Afdeling' }), deptSel);
+      const leadField = el('div', { class: 'field' }, el('label', { for: 'inv-lead', text: 'Teamleder' }), leadSel,
+        el('span', { class: 'hint', text: 'Teamlederen kan give medarbejderen opgaver. Kan også vælges senere.' }));
+      const drawLead = () => {
+        const leaders = S.members.filter(l => l.active && l.role === 'teamleder' && l.department_id === st.dept);
+        leadSel.replaceChildren(...[el('option', { value: '', text: 'Ingen teamleder endnu' })].concat(leaders.map(l => el('option', { value: l.id, text: l.name }))));
+        st.lead = '';
+        leadSel.value = '';
+      };
+      const sync = () => {
+        deptField.hidden = st.role === 'drift';
+        leadField.hidden = !TASK_ROLES.includes(st.role);
+        drawLead();
+      };
+      deptSel.addEventListener('change', () => { st.dept = deptSel.value; drawLead(); });
+      leadSel.addEventListener('change', () => { st.lead = leadSel.value; });
+      sync();
       role.addEventListener('change', () => {
         st.role = role.value;
         // Drift kan se alt, men ikke ændre noget, og kan derfor ikke være administrator.
         const viewer = st.role === 'drift';
         if (viewer) { st.admin = false; adminBox.checked = false; }
         adminBox.disabled = viewer;
-        roleHint.textContent = viewer ? 'Kan se kalender, opgaver og medarbejdere, men ikke ændre noget.' : '';
+        roleHint.textContent = viewer ? 'Kan se kalender, opgaver og medarbejdere i alle afdelinger, men ikke ændre noget.' : '';
+        sync();
       });
       const form = el('form', { class: 'dlg-body', style: 'padding:0', novalidate: true },
         el('div', { class: 'field' }, el('label', { for: 'inv-name', text: 'Navn' }), el('input', { type: 'text', id: 'inv-name', maxlength: 80, autocomplete: 'off', oninput: e => { st.name = e.target.value; } })),
         el('div', { class: 'field' }, el('label', { for: 'inv-email', text: 'E-mail' }), el('input', { type: 'email', id: 'inv-email', autocomplete: 'off', oninput: e => { st.email = e.target.value; } })),
         el('div', { class: 'field' }, el('label', { for: 'inv-role', text: 'Rolle' }), role, roleHint),
+        deptField,
+        leadField,
         el('label', { class: 'check' }, adminBox, 'Giv administratorrettigheder'),
         err,
         el('div', { class: 'dlg-actions' }, el('button', { type: 'button', class: 'btn', text: 'Annuller', onclick: () => dlg.close() }), submit));
       form.addEventListener('submit', async ev => {
         ev.preventDefault();
         submit.disabled = true;
-        const r = await api('member_invite', { name: st.name, email: st.email, role: st.role, is_admin: st.admin });
+        const r = await api('member_invite', { name: st.name, email: st.email, role: st.role, is_admin: st.admin, department: st.role === 'drift' ? '' : st.dept, team_leader_id: TASK_ROLES.includes(st.role) ? st.lead : '' });
         submit.disabled = false;
         if (!r.ok) { err.textContent = r.error || 'Det lykkedes ikke. Prøv igen.'; return; }
         dlg.close();
