@@ -14,6 +14,9 @@ const MODE_LABEL = { gulvvagt: 'Gulvvagt', kald: 'På kald', admin: 'Administrat
 const MODE_DOT = { gulvvagt: 'g', kald: 'k', admin: 'a' }; // udfyldt prik, ring, udfyldt firkant
 const MODE_ORDER = { gulvvagt: 0, kald: 1, admin: 2 };
 const PRIO_LABEL = { fast: 'Kan ikke aflyses/udsættes', fleksibel: 'Foretages ved tid / mulighed' };
+// Prioritet på en opgave: 1 høj, 2 middel, 3 lav, ellers uprioriteret. Teamlederen (og administrator) sætter og ændrer den. En medarbejder kan vælge en,
+// mens opgaven er uprioriteret, og kan bede sin teamleder om at prioritere (prio_wanted).
+const PRIO = { 1: 'Høj', 2: 'Middel', 3: 'Lav' };
 const VIEWS = ['kalender', 'opgaver', 'medarbejdere'];
 
 const DAY_LONG = ['mandag', 'tirsdag', 'onsdag', 'torsdag', 'fredag', 'lørdag', 'søndag'];
@@ -218,6 +221,16 @@ const canJoin = t => !!S.me && !isViewer() && !isOpenTask(t) && !t.done && TASK_
   && S.me.department_id === taskDeptId(t) && t.assignee_id !== S.me.id && !amParticipant(t) && partsOf(t).length < MAX_PARTICIPANTS;
 // Afkrydsning: den ansvarlige, en deltager, og dem der må handle for en af dem (teamleder, administrator)
 const canToggle = t => !isOpenTask(t) && [t.assignee_id, ...partsOf(t)].some(id => canTaskFor(memberById(id)));
+// Højeste prioritet først. Uprioriterede kommer til sidst, og dem hvor medarbejderen har bedt om en prioritet, står først blandt dem.
+const prioRank = t => t.prio ? t.prio : (t.prio_wanted ? 3.5 : 4);
+function prioChip(t) {
+  if (t.prio) {
+    return el('span', { class: 'prio p' + t.prio, title: `Prioritet: ${PRIO[t.prio]}`, 'aria-label': `Prioritet: ${PRIO[t.prio]}` },
+      el('span', { class: 'bars', 'aria-hidden': 'true' }, el('i'), el('i'), el('i')), `${PRIO[t.prio]} prio`);
+  }
+  return t.prio_wanted ? el('span', { class: 'prio ask', title: 'Medarbejderen har bedt sin teamleder om en prioritet', text: 'Ønsker prio' }) : null;
+}
+const prioText = t => t.prio ? `${PRIO[t.prio]} prioritet` : (t.prio_wanted ? 'Uprioriteret (ønsker en prioritet)' : 'Uprioriteret');
 // "Delt med …" set fra en bestemt persons kolonne (kolonnens egen person nævnes ikke). I en deltagers kolonne er den ansvarlige markeret.
 function sharedText(t, colId) {
   const ids = [t.assignee_id, ...partsOf(t)].filter(id => id && id !== colId);
@@ -610,8 +623,8 @@ function viewCalendar() {
       type: 'button',
       class: 'pbar' + (x.priority === 'fast' ? ' fast' : '') + (isOnTask(x, S.focusMember) ? ' is-focus' : '') + (seg.contL ? ' cont-l' : '') + (seg.contR ? ' cont-r' : ''),
       vars: { '--c': colorOf(x.assignee_id), '--cs': seg.a + 1, '--ce': seg.e + 2, '--lane': seg.lane },
-      title: `${x.title}\n${name}, ${when}`,
-      'aria-label': `Opgave: ${x.title}, ${name}, ${when}` + (x.priority === 'fast' ? `, ${PRIO_LABEL.fast}` : ''),
+      title: `${x.title}\n${name}, ${when}` + (x.prio ? `, ${PRIO[x.prio]} prio` : ''),
+      'aria-label': `Opgave: ${x.title}, ${name}, ${when}` + (x.priority === 'fast' ? `, ${PRIO_LABEL.fast}` : '') + (x.prio ? `, ${PRIO[x.prio]} prioritet` : ''),
       'data-fk': `pb-${x.id}-${wsKey}`, 'data-task': x.id,
       onclick: () => taskDialog(x, x.assignee_id),
     },
@@ -782,7 +795,7 @@ function dayPanel(byDay) {
         return el('button', { type: 'button', class: 'dt' + (t.priority === 'fast' ? ' fast' : ''), vars: { '--c': colorOf(t.assignee_id) },
           'data-fk': 'dt-' + t.id, onclick: () => taskDialog(t, t.assignee_id) },
           el('span', { class: 'dt-title', text: t.title }),
-          el('span', { class: 'dt-meta', text: `${taskPeople(t)} · ${periodText(t)} · ${PRIO_LABEL[t.priority]}` }));
+          el('span', { class: 'dt-meta', text: `${taskPeople(t)} · ${periodText(t)} · ${PRIO_LABEL[t.priority]}` + (t.prio ? ` · ${PRIO[t.prio]} prio` : '') }));
       })));
   }
   panel.append(el('div', { class: 'req-add' },
@@ -1132,9 +1145,9 @@ function viewTasks() {
   if (S.onlyMine && meHasTasks()) people = people.filter(m => m.id === me);
   else if (S.onlyMine && isLead) people = people.filter(m => m.team_leader_id === me);
   const doneCount = S.tasks.filter(t => t.done).length;
-  // Sorteret efter det tidspunkt opgaven først kræver noget: deadline, eller periodens start. Uden tid til sidst.
+  // Højeste prioritet først, derefter det tidspunkt opgaven først kræver noget: deadline, eller periodens start. Uden tid til sidst.
   const when = t => t.due_date || t.start_date || '9999';
-  const cmp = (a, b) => when(a) < when(b) ? -1 : when(a) > when(b) ? 1 : (a.created_at < b.created_at ? -1 : 1);
+  const cmp = (a, b) => prioRank(a) - prioRank(b) || (when(a) < when(b) ? -1 : when(a) > when(b) ? 1 : (a.created_at < b.created_at ? -1 : 1));
 
   const head = el('div', { class: 'page-head' },
     el('h1', { text: 'Opgaver' }),
@@ -1215,6 +1228,7 @@ function deadlineList(visibleIds) {
   const items = S.tasks
     .filter(t => !t.done && t.due_date && (isOpenTask(t) || [t.assignee_id, ...partsOf(t)].some(id => visibleIds.has(id))))
     .sort((a, b) => a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1
+      : prioRank(a) !== prioRank(b) ? prioRank(a) - prioRank(b)
       : a.priority !== b.priority ? (a.priority === 'fast' ? -1 : 1) : (a.created_at < b.created_at ? -1 : 1));
   const late = items.filter(t => t.due_date < iso(now)).length;
   const item = t => {
@@ -1227,7 +1241,7 @@ function deadlineList(visibleIds) {
           el('b', { class: 'dl-main', text: info.main }),
           el('span', { class: 'dl-exact', text: info.exact })),
         el('span', { class: 'dl-title', text: t.title }),
-        el('span', { class: 'dl-who', text: isOpenTask(t) ? `Åben · kan tages af ${POOL_LABEL[t.pool_role] || ''}` : taskPeople(t) })));
+        el('span', { class: 'dl-who' }, prioChip(t), el('span', { text: isOpenTask(t) ? `Åben · kan tages af ${POOL_LABEL[t.pool_role] || ''}` : taskPeople(t) }))));
   };
   return el('aside', { class: 'deadlines', 'aria-label': 'Deadlines' },
     el('div', { class: 'dl-head' },
@@ -1276,17 +1290,19 @@ function taskRow(t, col) {
   const open = isOpenTask(t);
   const mayToggle = canToggle(t);
   const shared = !open && partsOf(t).length > 0;
+  const chip = prioChip(t);
   // En åben opgave har ingen at markere som udført, før en medarbejder har taget den
   let box = null;
   if (!open) {
     box = el('input', { type: 'checkbox', checked: t.done, disabled: !mayToggle, 'aria-label': !mayToggle ? (t.done ? `"${t.title}" er udført` : `"${t.title}" er ikke udført`) : `Markér "${t.title}" som udført`, 'data-fk': 'chk-' + t.id });
     box.addEventListener('change', () => toggleTask(t, box.checked));
   }
-  return el('li', { class: `task ${t.priority}` + (t.done ? ' done' : '') + (open ? ' open' : '') },
+  return el('li', { class: `task ${t.priority}` + (t.prio ? ' p' + t.prio : '') + (t.done ? ' done' : '') + (open ? ' open' : '') },
     box,
     el('button', { type: 'button', class: 'task-main', 'data-fk': 'task-' + t.id, onclick: () => taskDialog(t, t.assignee_id) },
       el('span', { class: 'task-title', text: t.title }),
-      (w || t.done || open || shared) ? el('span', { class: 'task-meta' },
+      (w || t.done || open || shared || chip) ? el('span', { class: 'task-meta' },
+        chip,
         open ? el('span', { class: 'pool', text: 'Kan tages af ' + (POOL_LABEL[t.pool_role] || '') }) : null,
         w ? el('span', { class: 'due' + (w.late ? ' late' : ''), text: w.text }) : null,
         shared ? el('span', { class: 'shared', text: sharedText(t, col && col.id) }) : null,
@@ -1407,7 +1423,8 @@ function taskView(task) {
     build(body, dlg) {
       body.append(
         el('dl', { class: 'facts' },
-          fact('Prioritet', PRIO_LABEL[task.priority] || ''),
+          fact('Prioritet', prioText(task)),
+          fact('Fleksibilitet', PRIO_LABEL[task.priority] || ''),
           fact('Ansvarlig', open ? 'Ingen endnu' : (who ? who.name : '')),
           partsOf(task).length ? fact('Deltagere', partsOf(task).map(personName).filter(Boolean).join(', ')) : null,
           open ? fact('Kan tages af', POOL_LABEL[task.pool_role] || '') : null,
@@ -1435,8 +1452,9 @@ function taskDialog(task, assigneeId) {
   const st = task
     ? { title: task.title, details: task.details || '', priority: task.priority, assignee: task.assignee_id || '', pool: task.pool_role || (pools[0] ? pools[0][0] : ''),
         mode: task.start_date ? 'periode' : task.due_date ? 'deadline' : 'ingen',
-        due: task.due_date || '', from: task.start_date || '', to: task.end_date || '' }
-    : { title: '', details: '', priority: 'fleksibel', assignee: assigneeId || '', pool: pools[0] ? pools[0][0] : '', mode: 'ingen', due: '', from: '', to: '' };
+        due: task.due_date || '', from: task.start_date || '', to: task.end_date || '',
+        prio: task.prio ? String(task.prio) : '', want: !!task.prio_wanted }
+    : { title: '', details: '', priority: 'fleksibel', assignee: assigneeId || '', pool: pools[0] ? pools[0][0] : '', mode: 'ingen', due: '', from: '', to: '', prio: '', want: false };
   openDialog({
     title: task ? 'Ret opgave' : 'Tilføj opgave',
     build(body, dlg) {
@@ -1511,9 +1529,29 @@ function taskDialog(task, assigneeId) {
         if (!r.ok) { release.disabled = false; err.textContent = r.error || 'Det lykkedes ikke. Prøv igen.'; return; }
         dlg.close(); toast(r.handed_to ? `Opgaven er givet videre til ${r.handed_to}` : 'Opgaven er lagt tilbage'); reload();
       });
+      // Prioritet: teamleder og administrator kan altid sætte og ændre den. En medarbejder kan vælge en, mens opgaven er uprioriteret,
+      // eller bede sin teamleder om at prioritere. Er den sat, kan kun teamlederen ændre den.
+      const boss = canOpenTasks();
+      const prioLocked = !boss && !!(task && task.prio);
+      const prioBox = el('div', { class: 'field', 'data-fk': 'prio-box' }, el('span', { class: 'lbl', id: 'task-prio-lbl', text: 'Prioritet' }));
+      if (prioLocked) {
+        prioBox.append(el('p', { class: 'prio-fixed' }, prioChip(task), el('span', { text: 'Kun din teamleder kan ændre prioriteten.' })));
+      } else {
+        const wantBox = el('label', { class: 'check want' },
+          el('input', { type: 'checkbox', id: 'task-prio-want', checked: st.want, onchange: e => { st.want = e.target.checked; } }),
+          'Bed min teamleder om at prioritere opgaven');
+        const syncWant = () => { wantBox.hidden = boss || st.prio !== ''; };
+        const prioSeg = segmented('task-prio-level', [['', 'Uprioriteret'], ['1', 'Høj'], ['2', 'Middel'], ['3', 'Lav']], st.prio, v => { st.prio = v; syncWant(); });
+        prioSeg.setAttribute('aria-labelledby', 'task-prio-lbl');
+        prioBox.append(prioSeg);
+        if (!boss) prioBox.append(el('p', { class: 'hint', text: 'Du kan vælge en prioritet, så længe opgaven er uprioriteret. Bagefter kan kun din teamleder ændre den.' }));
+        prioBox.append(wantBox);
+        syncWant();
+      }
       const form = el('form', { class: 'dlg-body', style: 'padding:0', novalidate: true },
         el('div', { class: 'field' }, el('label', { for: 'task-title', text: 'Opgave' }), title),
-        el('div', { class: 'field' }, el('span', { class: 'lbl', text: 'Prioritet' }),
+        prioBox,
+        el('div', { class: 'field' }, el('span', { class: 'lbl', text: 'Fleksibilitet' }),
           segmented('task-prio', [['fast', PRIO_LABEL.fast, 'fast'], ['fleksibel', PRIO_LABEL.fleksibel, '']], st.priority, v => { st.priority = v; })),
         el('div', { class: 'field' }, el('label', { for: 'task-who', text: 'Ansvarlig' }), who),
         poolField,
@@ -1543,6 +1581,8 @@ function taskDialog(task, assigneeId) {
           pool_role: st.assignee === '' ? st.pool : '', department: S.dept || '' }, time);
         // Kollegerne opgaven deles med (kun for en opgave der har en ansvarlig)
         if (st.assignee !== '') payload.participants = Array.from(picked);
+        // Prioriteten sendes med, medmindre den er sat og låst for en medarbejder
+        if (!prioLocked) { payload.prio = st.prio; if (!boss) payload.prio_wanted = st.prio === '' && st.want; }
         const r = task ? await api('task_update', Object.assign({ id: task.id }, payload)) : await api('task_add', payload);
         submit.disabled = false;
         if (!r.ok) { err.textContent = r.error || 'Det lykkedes ikke. Prøv igen.'; return; }
