@@ -204,6 +204,25 @@ const canClaim = t => !!S.me && !isViewer() && isOpenTask(t) && TASK_ROLES.inclu
   && S.me.department_id === t.department_id && (t.pool_role === 'alle' || t.pool_role === S.me.role);
 // Må man rette opgaven (åben eller ej)
 const mayEditTask = t => isOpenTask(t) ? canEditOpen(t) : canTaskFor(memberById(t.assignee_id));
+// Delte opgaver: den ansvarlige kan dele en opgave med kolleger i afdelingen (TUK og ProblemManager). Deltagerne ser opgaven hos sig,
+// kan markere den som udført og forlade den igen. Kun den ansvarlige (og lederen over vedkommende, eller administrator) kan rette den.
+const MAX_PARTICIPANTS = 10;
+const partsOf = t => t.participants || [];
+const isOnTask = (t, id) => !!id && (t.assignee_id === id || partsOf(t).includes(id));
+const amParticipant = t => !!S.me && partsOf(t).includes(S.me.id);
+const personName = id => { const m = memberById(id); return m ? m.name : ''; };
+// Navnene på alle der har opgaven, den ansvarlige først
+const taskPeople = t => [t.assignee_id, ...partsOf(t)].filter(Boolean).map(personName).filter(Boolean).join(', ');
+const taskDeptId = t => { const o = memberById(t.assignee_id); return o ? o.department_id : t.department_id; };
+const canJoin = t => !!S.me && !isViewer() && !isOpenTask(t) && !t.done && TASK_ROLES.includes(S.me.role)
+  && S.me.department_id === taskDeptId(t) && t.assignee_id !== S.me.id && !amParticipant(t) && partsOf(t).length < MAX_PARTICIPANTS;
+// Afkrydsning: den ansvarlige, en deltager, og dem der må handle for en af dem (teamleder, administrator)
+const canToggle = t => !isOpenTask(t) && [t.assignee_id, ...partsOf(t)].some(id => canTaskFor(memberById(id)));
+// "Delt med …" set fra en bestemt persons kolonne (kolonnens egen person nævnes ikke). I en deltagers kolonne er den ansvarlige markeret.
+function sharedText(t, colId) {
+  const ids = [t.assignee_id, ...partsOf(t)].filter(id => id && id !== colId);
+  return 'Delt med ' + ids.map(id => personName(id) + (id === t.assignee_id ? ' (ansvarlig)' : '')).join(', ');
+}
 // Kategorierne en åben opgave kan have i den viste afdeling: de roller der findes blandt medarbejderne, og alle samlet hvis der er flere
 function poolOptions(current) {
   const roles = TASK_ROLES.filter(r => taskMembers().some(m => m.role === r));
@@ -585,11 +604,11 @@ function viewCalendar() {
 
   const periodBar = (seg, wsKey) => {
     const x = seg.t, who = memberById(x.assignee_id);
-    const name = who ? who.name : '';
+    const name = taskPeople(x);
     const when = periodText(x);
     return el('button', {
       type: 'button',
-      class: 'pbar' + (x.priority === 'fast' ? ' fast' : '') + (S.focusMember === x.assignee_id ? ' is-focus' : '') + (seg.contL ? ' cont-l' : '') + (seg.contR ? ' cont-r' : ''),
+      class: 'pbar' + (x.priority === 'fast' ? ' fast' : '') + (isOnTask(x, S.focusMember) ? ' is-focus' : '') + (seg.contL ? ' cont-l' : '') + (seg.contR ? ' cont-r' : ''),
       vars: { '--c': colorOf(x.assignee_id), '--cs': seg.a + 1, '--ce': seg.e + 2, '--lane': seg.lane },
       title: `${x.title}\n${name}, ${when}`,
       'aria-label': `Opgave: ${x.title}, ${name}, ${when}` + (x.priority === 'fast' ? `, ${PRIO_LABEL.fast}` : ''),
@@ -760,11 +779,10 @@ function dayPanel(byDay) {
     panel.append(el('div', { class: 'day-tasks' },
       el('h3', { text: dayTasks.length === 1 ? 'Opgave i perioden' : 'Opgaver i perioden' }),
       dayTasks.map(t => {
-        const who = memberById(t.assignee_id);
         return el('button', { type: 'button', class: 'dt' + (t.priority === 'fast' ? ' fast' : ''), vars: { '--c': colorOf(t.assignee_id) },
           'data-fk': 'dt-' + t.id, onclick: () => taskDialog(t, t.assignee_id) },
           el('span', { class: 'dt-title', text: t.title }),
-          el('span', { class: 'dt-meta', text: `${who ? who.name : ''} · ${periodText(t)} · ${PRIO_LABEL[t.priority]}` }));
+          el('span', { class: 'dt-meta', text: `${taskPeople(t)} · ${periodText(t)} · ${PRIO_LABEL[t.priority]}` }));
       })));
   }
   panel.append(el('div', { class: 'req-add' },
@@ -1124,9 +1142,9 @@ function viewTasks() {
       !(meHasTasks() || isLead) ? null : el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: S.onlyMine, 'data-fk': 'only-mine', onchange: e => { S.onlyMine = e.target.checked; renderApp(); } }), isLead ? 'Kun mine medarbejdere' : 'Kun mine'),
       el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: S.showDone, 'data-fk': 'show-done', onchange: e => { S.showDone = e.target.checked; renderApp(); } }), `Vis udførte (${doneCount})`)));
 
-  const group = (label, kind, list) => el('section', { class: 'group', 'aria-label': label },
+  const group = (label, kind, list, col) => el('section', { class: 'group', 'aria-label': label },
     el('h3', { class: 'group-h ' + kind }, el('span', { class: 'flag' + (kind === 'soft' ? ' soft' : '') }), label, el('span', { class: 'n', text: String(list.length) })),
-    list.length ? el('ul', { class: 'tasks' }, list.map(taskRow)) : el('p', { class: 'none-yet', text: 'Ingen opgaver her.' }));
+    list.length ? el('ul', { class: 'tasks' }, list.map(t => taskRow(t, col))) : el('p', { class: 'none-yet', text: 'Ingen opgaver her.' }));
 
   // Åbne opgaver (uden bestemt medarbejder) står først, så dem man kan tage ses med det samme. Kolonnen vises for alle, og er skjult hvis der ingen er og man ikke kan oprette dem.
   const pool = S.tasks.filter(isOpenTask);
@@ -1141,7 +1159,8 @@ function viewTasks() {
     canOpenTasks() ? el('div', {}, el('button', { type: 'button', class: 'btn small', text: 'Tilføj åben opgave', 'data-fk': 'add-open', onclick: () => taskDialog(null, null) })) : null) : null;
 
   const cols = people.map(m => {
-    const mine = S.tasks.filter(t => t.assignee_id === m.id);
+    // Både opgaver man er ansvarlig for og opgaver man deltager i
+    const mine = S.tasks.filter(t => isOnTask(t, m.id));
     const open = mine.filter(t => !t.done);
     const fast = open.filter(t => t.priority === 'fast').sort(cmp);
     const flex = open.filter(t => t.priority !== 'fast').sort(cmp);
@@ -1152,11 +1171,11 @@ function viewTasks() {
         el('h2', { text: m.name }),
         el('span', { class: 'role', text: m.id === me ? `${ROLES[m.role] || ''} (dig)` : (ROLES[m.role] || '') })),
       lead ? el('p', { class: 'person-sub', text: `Teamleder: ${lead.name}` }) : null,
-      group(PRIO_LABEL.fast, 'fast', fast),
-      group(PRIO_LABEL.fleksibel, 'soft', flex),
+      group(PRIO_LABEL.fast, 'fast', fast, m),
+      group(PRIO_LABEL.fleksibel, 'soft', flex, m),
       S.showDone && done.length ? el('section', { class: 'group', 'aria-label': 'Udførte opgaver' },
         el('h3', { class: 'group-h' }, 'Udført', el('span', { class: 'n', text: String(done.length) })),
-        el('ul', { class: 'tasks' }, done.map(taskRow))) : null,
+        el('ul', { class: 'tasks' }, done.map(t => taskRow(t, m)))) : null,
       canTaskFor(m) ? el('div', {}, el('button', { type: 'button', class: 'btn small', text: 'Tilføj opgave', 'data-fk': 'add-' + m.id, onclick: () => taskDialog(null, m.id) })) : null);
   });
   const all = openCol ? [openCol, ...cols] : cols;
@@ -1196,26 +1215,31 @@ function taskWhen(t) {
   return null;
 }
 
-function taskRow(t) {
+// col er personen, hvis kolonne rækken står i (ikke for åbne opgaver)
+function taskRow(t, col) {
   const w = taskWhen(t);
   const open = isOpenTask(t);
-  const mayEdit = mayEditTask(t);
+  const mayToggle = canToggle(t);
+  const shared = !open && partsOf(t).length > 0;
   // En åben opgave har ingen at markere som udført, før en medarbejder har taget den
   let box = null;
   if (!open) {
-    box = el('input', { type: 'checkbox', checked: t.done, disabled: !mayEdit, 'aria-label': !mayEdit ? (t.done ? `"${t.title}" er udført` : `"${t.title}" er ikke udført`) : `Markér "${t.title}" som udført`, 'data-fk': 'chk-' + t.id });
+    box = el('input', { type: 'checkbox', checked: t.done, disabled: !mayToggle, 'aria-label': !mayToggle ? (t.done ? `"${t.title}" er udført` : `"${t.title}" er ikke udført`) : `Markér "${t.title}" som udført`, 'data-fk': 'chk-' + t.id });
     box.addEventListener('change', () => toggleTask(t, box.checked));
   }
   return el('li', { class: `task ${t.priority}` + (t.done ? ' done' : '') + (open ? ' open' : '') },
     box,
     el('button', { type: 'button', class: 'task-main', 'data-fk': 'task-' + t.id, onclick: () => taskDialog(t, t.assignee_id) },
       el('span', { class: 'task-title', text: t.title }),
-      (w || t.done || open) ? el('span', { class: 'task-meta' },
+      (w || t.done || open || shared) ? el('span', { class: 'task-meta' },
         open ? el('span', { class: 'pool', text: 'Kan tages af ' + (POOL_LABEL[t.pool_role] || '') }) : null,
         w ? el('span', { class: 'due' + (w.late ? ' late' : ''), text: w.text }) : null,
+        shared ? el('span', { class: 'shared', text: sharedText(t, col && col.id) }) : null,
         t.done && t.done_at ? el('span', { text: 'Udført ' + fmtShort(new Date(t.done_at)) }) : null) : null,
       t.details ? el('span', { class: 'task-details', text: t.details }) : null),
-    canClaim(t) ? el('div', { class: 'task-act' }, el('button', { type: 'button', class: 'btn small primary', text: 'Tag opgaven', 'data-fk': 'claim-' + t.id, onclick: () => claimTask(t) })) : null);
+    canClaim(t) ? el('div', { class: 'task-act' },
+      el('button', { type: 'button', class: 'btn small primary', text: 'Tag opgaven', 'data-fk': 'claim-' + t.id, onclick: () => claimTask(t) }),
+      el('button', { type: 'button', class: 'btn small', text: 'Del opgaven', 'data-fk': 'share-' + t.id, onclick: () => shareDialog(t) })) : null);
 }
 
 // Tag en åben opgave. Hvis en anden nåede det først, fortæller serveren det, og listen opdateres.
@@ -1228,8 +1252,82 @@ async function claimTask(t, dlg) {
   reload();
 }
 
+// Deltag i en kollegas opgave. Den kommer så også til at stå hos en selv.
+async function joinTask(t, dlg) {
+  const r = await api('task_join', { id: t.id });
+  S.sig = '';
+  if (!r.ok) { reload(); return toast(r.error || 'Det lykkedes ikke. Prøv igen.', true); }
+  if (dlg) dlg.close();
+  toast('Du deltager i opgaven');
+  reload();
+}
+
+async function leaveTask(t, dlg) {
+  const r = await api('task_leave', { id: t.id });
+  S.sig = '';
+  if (!r.ok) { reload(); return toast(r.error || 'Det lykkedes ikke. Prøv igen.', true); }
+  if (dlg) dlg.close();
+  toast('Du har forladt opgaven');
+  reload();
+}
+
+// Afkrydsningsliste over kolleger (aktive TUK og ProblemManager i afdelingen). selected er et Set med id'er, som ændres løbende. Højst 10.
+function peoplePicker(cands, selected, onChange) {
+  const boxes = [];
+  const sync = () => {
+    const full = selected.size >= MAX_PARTICIPANTS;
+    boxes.forEach(b => { b.disabled = full && !b.checked; });
+    if (onChange) onChange();
+  };
+  const items = cands.map(m => {
+    const b = el('input', { type: 'checkbox', checked: selected.has(m.id), 'data-fk': 'part-' + m.id, value: m.id });
+    b.addEventListener('change', () => { if (b.checked) selected.add(m.id); else selected.delete(m.id); sync(); });
+    boxes.push(b);
+    return el('li', {}, el('label', { class: 'check' }, b, el('span', { class: 'pname' }, m.name, el('small', { text: ROLES[m.role] || '' }))));
+  });
+  const list = el('ul', { class: 'share-list' }, items);
+  sync();
+  return list;
+}
+
+// Tag en åben opgave og del den med kolleger i afdelingen (mindst én)
+function shareDialog(task) {
+  const selected = new Set();
+  openDialog({
+    title: 'Del opgaven',
+    build(body, dlg) {
+      const err = el('p', { class: 'err', role: 'alert' });
+      const others = taskMembers().filter(m => !S.me || m.id !== S.me.id);
+      const submit = el('button', { type: 'submit', class: 'btn primary', text: 'Tag og del opgaven', 'data-fk': 'share-go', disabled: true });
+      const form = el('form', { class: 'dlg-body', style: 'padding:0', novalidate: true },
+        el('div', { class: 'field' }, el('p', { class: 'hint', text: `Du tager "${task.title}" og deler den med de kolleger, du vælger. De ser opgaven hos sig og kan markere den som udført.` })),
+        others.length
+          ? el('div', { class: 'field' }, el('span', { class: 'lbl', text: 'Del med' }),
+              peoplePicker(others, selected, () => { err.textContent = ''; submit.disabled = selected.size === 0; }))
+          : el('p', { class: 'none-yet', text: 'Der er ingen kolleger i afdelingen at dele med.' }),
+        err,
+        el('div', { class: 'dlg-actions' }, el('button', { type: 'button', class: 'btn', text: 'Annuller', onclick: () => dlg.close() }), submit));
+      form.addEventListener('submit', async ev => {
+        ev.preventDefault();
+        if (!selected.size) { err.textContent = 'Vælg mindst én kollega at dele opgaven med.'; return; }
+        submit.disabled = true;
+        const r = await api('task_share', { id: task.id, participants: Array.from(selected) });
+        if (!r.ok) {
+          submit.disabled = false;
+          err.textContent = r.error || 'Det lykkedes ikke. Prøv igen.';
+          // Var opgaven allerede taget af en anden, opdateres listen i baggrunden
+          S.sig = ''; reload();
+          return;
+        }
+        dlg.close(); toast('Du har taget opgaven og delt den'); S.sig = ''; reload();
+      });
+      body.append(form);
+    },
+  });
+}
+
 async function toggleTask(t, done) {
-  if (!canTaskFor(memberById(t.assignee_id))) return;
+  if (!canToggle(t)) return;
   const before = { done: t.done, done_at: t.done_at };
   t.done = done; t.done_at = done ? new Date().toISOString() : null;
   renderApp();
@@ -1256,13 +1354,17 @@ function taskView(task) {
         el('dl', { class: 'facts' },
           fact('Prioritet', PRIO_LABEL[task.priority] || ''),
           fact('Ansvarlig', open ? 'Ingen endnu' : (who ? who.name : '')),
+          partsOf(task).length ? fact('Deltagere', partsOf(task).map(personName).filter(Boolean).join(', ')) : null,
           open ? fact('Kan tages af', POOL_LABEL[task.pool_role] || '') : null,
           w ? fact('Tid', w.text) : null,
           open ? null : fact('Status', task.done ? 'Udført' + (task.done_at ? ' ' + fmtShort(new Date(task.done_at)) : '') : 'Ikke udført'),
           task.details ? fact('Beskrivelse', task.details) : null),
         el('div', { class: 'dlg-actions' },
           canClaim(task) ? el('button', { type: 'button', class: 'btn primary', text: 'Tag opgaven', 'data-fk': 'claim-view', onclick: () => claimTask(task, dlg) }) : null,
-          el('button', { type: 'button', class: 'btn' + (canClaim(task) ? '' : ' primary'), text: 'Luk', onclick: () => dlg.close() })));
+          canClaim(task) ? el('button', { type: 'button', class: 'btn', text: 'Del opgaven', 'data-fk': 'share-view', onclick: () => { dlg.close(); shareDialog(task); } }) : null,
+          canJoin(task) ? el('button', { type: 'button', class: 'btn primary', text: 'Deltag i opgave', 'data-fk': 'join-view', onclick: () => joinTask(task, dlg) }) : null,
+          amParticipant(task) && !isViewer() ? el('button', { type: 'button', class: 'btn', text: 'Forlad opgaven', 'data-fk': 'leave-view', onclick: () => leaveTask(task, dlg) }) : null,
+          el('button', { type: 'button', class: 'btn' + (canClaim(task) || canJoin(task) ? '' : ' primary'), text: 'Luk', onclick: () => dlg.close() })));
     },
   });
 }
@@ -1272,6 +1374,8 @@ function taskDialog(task, assigneeId) {
   const may = task ? mayEditTask(task) : (assigneeId ? canTaskFor(memberById(assigneeId)) : canOpenTasks());
   if (!may) { if (task) taskView(task); return; }
   const pools = poolOptions(task && task.pool_role);
+  // Kolleger opgaven deles med. Åbne opgaver kan ikke deles, før de er taget.
+  const picked = new Set(task ? partsOf(task) : []);
   // Tid er valgfri: ingen, en deadline eller en periode (fra og til), aldrig begge.
   const st = task
     ? { title: task.title, details: task.details || '', priority: task.priority, assignee: task.assignee_id || '', pool: task.pool_role || (pools[0] ? pools[0][0] : ''),
@@ -1294,7 +1398,18 @@ function taskDialog(task, assigneeId) {
       poolSel.value = st.pool;
       poolSel.addEventListener('change', () => { st.pool = poolSel.value; });
       const poolField = el('div', { class: 'field', hidden: st.assignee !== '' }, el('label', { for: 'task-pool', text: 'Kan tages af' }), poolSel);
-      who.addEventListener('change', () => { st.assignee = who.value; poolField.hidden = st.assignee !== ''; err.textContent = ''; });
+      // Del med kolleger: alle aktive TUK og ProblemManager i afdelingen undtagen den ansvarlige. Skjult for åbne opgaver.
+      const partBox = el('div', { class: 'field', 'data-fk': 'part-box', hidden: st.assignee === '' });
+      const drawParts = () => {
+        partBox.hidden = st.assignee === '';
+        const cands = taskMembers().filter(m => m.id !== st.assignee);
+        // Kun dem der kan deltage nu, følger med (en deaktiveret kollega falder fra)
+        Array.from(picked).forEach(id => { if (!cands.some(m => m.id === id)) picked.delete(id); });
+        partBox.replaceChildren(el('span', { class: 'lbl', text: 'Del med kolleger (valgfri)' }),
+          cands.length ? peoplePicker(cands, picked) : el('p', { class: 'none-yet', text: 'Der er ingen kolleger i afdelingen at dele med.' }));
+      };
+      drawParts();
+      who.addEventListener('change', () => { st.assignee = who.value; poolField.hidden = st.assignee !== ''; drawParts(); err.textContent = ''; });
       const title = el('input', { type: 'text', id: 'task-title', maxlength: 200, value: st.title, required: true, oninput: e => { st.title = e.target.value; } });
       const DATE_MIN = '2000-01-01', DATE_MAX = '2100-12-31';
       const timeBox = el('div', { class: 'time-box' });
@@ -1331,13 +1446,15 @@ function taskDialog(task, assigneeId) {
         if (!r.ok) { del.disabled = false; err.textContent = r.error || 'Det lykkedes ikke. Prøv igen.'; return; }
         dlg.close(); toast('Opgave slettet'); reload();
       });
-      // En opgave taget fra de åbne opgaver kan lægges tilbage, så en anden kan tage den
-      const release = (task && task.pool_role && task.assignee_id && !task.done) ? el('button', { type: 'button', class: 'btn', text: 'Læg tilbage i åbne opgaver', 'data-fk': 'release' }) : null;
+      // En delt opgave kan gives videre til den første deltager. En opgave taget fra de åbne opgaver kan lægges tilbage, så en anden kan tage den.
+      const shareHand = task && task.assignee_id && !task.done && partsOf(task).length ? personName(partsOf(task)[0]) : '';
+      const release = (task && task.assignee_id && !task.done && (shareHand || task.pool_role))
+        ? el('button', { type: 'button', class: 'btn', text: shareHand ? `Giv opgaven videre til ${shareHand}` : 'Læg tilbage i åbne opgaver', 'data-fk': 'release' }) : null;
       if (release) release.addEventListener('click', async () => {
         release.disabled = true;
         const r = await api('task_release', { id: task.id });
         if (!r.ok) { release.disabled = false; err.textContent = r.error || 'Det lykkedes ikke. Prøv igen.'; return; }
-        dlg.close(); toast('Opgaven er lagt tilbage'); reload();
+        dlg.close(); toast(r.handed_to ? `Opgaven er givet videre til ${r.handed_to}` : 'Opgaven er lagt tilbage'); reload();
       });
       const form = el('form', { class: 'dlg-body', style: 'padding:0', novalidate: true },
         el('div', { class: 'field' }, el('label', { for: 'task-title', text: 'Opgave' }), title),
@@ -1345,6 +1462,7 @@ function taskDialog(task, assigneeId) {
           segmented('task-prio', [['fast', PRIO_LABEL.fast, 'fast'], ['fleksibel', PRIO_LABEL.fleksibel, '']], st.priority, v => { st.priority = v; })),
         el('div', { class: 'field' }, el('label', { for: 'task-who', text: 'Ansvarlig' }), who),
         poolField,
+        partBox,
         el('div', { class: 'field' }, el('span', { class: 'lbl', id: 'task-time-lbl', text: 'Tid (valgfri)' }), timeSeg, timeBox),
         el('div', { class: 'field' }, el('label', { for: 'task-details', text: 'Beskrivelse (valgfri)' }),
           el('textarea', { id: 'task-details', maxlength: 2000, oninput: e => { st.details = e.target.value; } }, st.details)),
@@ -1368,6 +1486,8 @@ function taskDialog(task, assigneeId) {
         // Uden medarbejder er opgaven åben: kategorien og afdelingen (den viste) følger med
         const payload = Object.assign({ title: st.title, details: st.details, priority: st.priority, assignee_id: st.assignee,
           pool_role: st.assignee === '' ? st.pool : '', department: S.dept || '' }, time);
+        // Kollegerne opgaven deles med (kun for en opgave der har en ansvarlig)
+        if (st.assignee !== '') payload.participants = Array.from(picked);
         const r = task ? await api('task_update', Object.assign({ id: task.id }, payload)) : await api('task_add', payload);
         submit.disabled = false;
         if (!r.ok) { err.textContent = r.error || 'Det lykkedes ikke. Prøv igen.'; return; }

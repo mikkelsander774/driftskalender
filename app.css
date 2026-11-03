@@ -489,7 +489,13 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 .task-meta { display: flex; flex-wrap: wrap; gap: .1rem .65rem; font-size: .85rem; line-height: 1.35; color: var(--ink-3); }
 .task-meta .due.late { color: var(--danger); font-weight: 700; }
 .task-meta .pool { color: var(--ink); font-weight: 700; }
-.task-act { display: flex; }
+.task-act { display: flex; flex-wrap: wrap; gap: .4rem; }
+.task-meta .shared { color: var(--ink-2); font-weight: 600; }
+/* Afkrydsningsliste over kolleger: Del opgaven og Ret opgave */
+.share-list { list-style: none; margin: .25rem 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr)); gap: .35rem .75rem; }
+.share-list .check { font-weight: 600; width: 100%; padding: .3rem .1rem; }
+.share-list .pname { display: flex; flex-direction: column; line-height: 1.2; }
+.share-list .pname small { font-weight: 400; color: var(--ink-3); }
 .time-box:empty { display: none; }
 .time-box { margin-top: .25rem; display: grid; gap: .5rem; }
 .time-box > .lbl { font-weight: 700; font-size: .92rem; color: var(--ink-2); }
