@@ -453,14 +453,14 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
   .deadlines { order: 0; position: sticky; top: 4.75rem; max-height: calc(100vh - 6rem); }
 }
 .dl-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .15rem .6rem; margin-bottom: .55rem; }
-.dl-head h2 { font: 600 1.05rem/1.15 var(--f-ui); margin-right: auto; }
-.dl-n { font: 600 .9rem/1 var(--f-ui); color: var(--ink-2); }
+.dl-head h2 { font: 600 .95rem/1.15 var(--f-ui); margin-right: auto; }
+.dl-n { font: 600 .82rem/1 var(--f-ui); color: var(--ink-2); }
 .dl-late-n { font: 700 .85rem/1 var(--f-ui); color: #fff; background: var(--danger); border-radius: 999px; padding: .28rem .6rem; }
 .dl-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .45rem; }
 .dl-item { border: 1px solid var(--line); border-left: 6px solid var(--ink-3); border-radius: var(--r); background: var(--wash); }
 .dl-btn { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .1rem .6rem; width: 100%; text-align: left; border: 0; background: none; padding: .5rem .6rem; border-radius: inherit; color: var(--ink); }
 .dl-btn:hover .dl-title { text-decoration: underline; }
-.dl-date { font: 600 .98rem/1.2 var(--f-ui); white-space: nowrap; }
+.dl-date { font: 600 .88rem/1.2 var(--f-ui); white-space: nowrap; }
 .dl-cd { display: contents; }
 .dl-main { grid-column: 2; grid-row: 1; align-self: center; font: 700 .85rem/1 var(--f-ui); padding: .3rem .55rem; border-radius: 999px; background: var(--ink-3); color: #fff; white-space: nowrap; }
 .dl-exact { grid-column: 1 / -1; grid-row: 3; font: 600 .9rem/1.25 var(--f-ui); color: var(--ink-2); font-variant-numeric: tabular-nums; }
@@ -485,24 +485,24 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 /* Åbne opgaver: første kolonne, i mørk streg så den ikke forveksles med en person */
 .person.open-col { --c: var(--ink); background: var(--wash); border-color: var(--ink-3); }
 .person-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
-.person-head h2 { font: 700 1.25rem/1.15 var(--f-display); letter-spacing: -.01em; }
-.person-head .role { color: var(--ink-3); font-size: .9rem; }
+.person-head h2 { font: 700 1.08rem/1.15 var(--f-display); letter-spacing: -.01em; }
+.person-head .role { color: var(--ink-3); font-size: .85rem; }
 .person-head .me { font-size: .85rem; color: var(--ink-2); }
 .person-sub { margin-top: -.45rem; color: var(--ink-3); font-size: .88rem; line-height: 1.35; }
 /* De to grupper (Kan ikke aflyses/udsættes, Foretages ved tid / mulighed) er store, tydelige bånd med en kraftig streg imellem */
 .group { display: grid; gap: .1rem; }
 .group + .group { margin-top: .5rem; padding-top: 1rem; border-top: 3px solid var(--line); }
 .group-h {
-  display: flex; align-items: center; gap: .55rem; margin-bottom: .35rem; padding: .55rem .7rem;
-  font: 800 1.05rem/1.2 var(--f-display); letter-spacing: -.005em; color: var(--ink);
+  display: flex; align-items: center; gap: .5rem; margin-bottom: .3rem; padding: .4rem .65rem;
+  font: 700 .9rem/1.2 var(--f-display); letter-spacing: -.005em; color: var(--ink);
   background: var(--wash); border: 1px solid var(--line); border-left-width: 7px; border-radius: 8px;
 }
 .group-h.fast { background: var(--danger-wash); border-color: #e9bcb2; border-left-color: var(--danger); color: #7d1f0e; }
 .group-h.soft { border-left-color: var(--ink-3); }
 .open-col .group-h.soft { background: var(--paper); }
-.group-h .flag { width: .9rem; height: .9rem; border-radius: 3px; background: var(--danger); flex: none; }
+.group-h .flag { width: .8rem; height: .8rem; border-radius: 3px; background: var(--danger); flex: none; }
 .group-h .flag.soft { background: transparent; border: 3px solid var(--ink-3); border-radius: 50%; }
-.group-h .n { margin-left: auto; font: 700 1rem/1 var(--f-ui); color: var(--ink-2); }
+.group-h .n { margin-left: auto; font: 700 .9rem/1 var(--f-ui); color: var(--ink-2); }
 .tasks { list-style: none; margin: 0; padding: 0; }
 .task {
   display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .55rem; padding: .4rem .15rem;
