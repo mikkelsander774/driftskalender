@@ -465,7 +465,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--ink-3); }
 .dl-main { grid-column: 2; grid-row: 1; align-self: center; font: 700 .85rem/1 var(--f-ui); padding: .3rem .55rem; border-radius: 999px; background: var(--ink-3); color: #fff; white-space: nowrap; }
 .dl-exact { grid-column: 1 / -1; grid-row: 3; font: 400 .9rem/1.25 var(--f-ui); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .dl-date { grid-column: 1; grid-row: 1; }
-.dl-title { grid-column: 1 / -1; grid-row: 2; margin-top: .1rem; font-weight: 400; font-size: .95rem; line-height: 1.3; overflow-wrap: anywhere; }
+.dl-title { grid-column: 1 / -1; grid-row: 2; margin-top: .1rem; font-weight: 700; font-size: .95rem; line-height: 1.3; overflow-wrap: anywhere; }
 .dl-item.fast .dl-title::before { content: ""; display: inline-block; width: .5rem; height: .5rem; margin-right: .4rem; background: var(--danger); border-radius: 2px; vertical-align: .05em; }
 .dl-who { grid-column: 1 / -1; grid-row: 4; display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; font-size: .85rem; line-height: 1.3; color: var(--ink-3); overflow-wrap: anywhere; }
 .dl-item.later { border-left-color: var(--ok); }
