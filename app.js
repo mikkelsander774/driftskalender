@@ -1179,7 +1179,62 @@ function viewTasks() {
       canTaskFor(m) ? el('div', {}, el('button', { type: 'button', class: 'btn small', text: 'Tilføj opgave', 'data-fk': 'add-' + m.id, onclick: () => taskDialog(null, m.id) })) : null);
   });
   const all = openCol ? [openCol, ...cols] : cols;
-  return [head, all.length ? el('div', { class: 'people' }, all) : el('p', { class: 'loading', text: 'Ingen medarbejdere at vise.' })];
+  // Deadlines i højre side: følger "Kun mine", så man ser dem for de personer, der vises
+  const side = deadlineList(new Set(people.map(m => m.id)));
+  return [head, all.length ? el('div', { class: 'tasks-layout' }, el('div', { class: 'people' }, all), side) : el('p', { class: 'loading', text: 'Ingen medarbejdere at vise.' })];
+}
+
+/* ---------- Deadlines (højre side under Opgaver) ---------- */
+// En deadline gælder til udgangen af dagen. Tælleren viser tiden til da, eller hvor længe den er overskredet, og opdateres hvert halve minut.
+const DAY_MS = 86400000;
+function deadlineInfo(due, now) {
+  const d = parseISO(due);
+  const ms = addDays(d, 1) - now;                                  // tid til midnat efter deadlinedagen
+  const days = Math.round((d - parseISO(iso(now))) / DAY_MS);      // kalenderdage til deadlinedagen, negativ når den er overskredet
+  const dur = n => {
+    const mins = Math.max(1, Math.floor(n / 60000)), dd = Math.floor(mins / 1440), hh = Math.floor(mins % 1440 / 60), mm = mins % 60;
+    return dd > 0 ? `${dd} d ${hh} t` : hh > 0 ? `${hh} t ${mm} min` : `${mm} min`;
+  };
+  if (ms <= 0) return { state: 'late', main: `Overskredet ${-days} ${-days === 1 ? 'dag' : 'dage'}`, exact: `${dur(-ms)} over tiden` };
+  const main = days === 0 ? 'I dag' : days === 1 ? 'I morgen' : `Om ${days} dage`;
+  return { state: days === 0 ? 'today' : days <= 3 ? 'soon' : 'later', main, exact: `${dur(ms)} tilbage` };
+}
+function fillCountdown(node) {
+  const info = deadlineInfo(node.getAttribute('data-cd'), new Date());
+  const li = node.closest('.dl-item');
+  if (li) { li.classList.remove('late', 'today', 'soon', 'later'); li.classList.add(info.state); }
+  node.querySelector('.dl-main').textContent = info.main;
+  node.querySelector('.dl-exact').textContent = info.exact;
+}
+const tickCountdowns = () => document.querySelectorAll('[data-cd]').forEach(fillCountdown);
+setInterval(tickCountdowns, 30000);
+
+// Åbne og tildelte opgaver med deadline, der ikke er udført, mest presserende først (overskredne øverst). Kun opgaver, der vises i en kolonne.
+function deadlineList(visibleIds) {
+  const now = new Date();
+  const items = S.tasks
+    .filter(t => !t.done && t.due_date && (isOpenTask(t) || [t.assignee_id, ...partsOf(t)].some(id => visibleIds.has(id))))
+    .sort((a, b) => a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1
+      : a.priority !== b.priority ? (a.priority === 'fast' ? -1 : 1) : (a.created_at < b.created_at ? -1 : 1));
+  const late = items.filter(t => t.due_date < iso(now)).length;
+  const item = t => {
+    const info = deadlineInfo(t.due_date, now);
+    const d = parseISO(t.due_date);
+    return el('li', { class: `dl-item ${info.state}` + (t.priority === 'fast' ? ' fast' : '') },
+      el('button', { type: 'button', class: 'dl-btn', 'data-fk': 'dl-' + t.id, onclick: () => taskDialog(t, t.assignee_id) },
+        el('span', { class: 'dl-date', text: `${DAY_SHORT[dow(d)]} ${fmtTaskDate(t.due_date)}` }),
+        el('span', { class: 'dl-cd', 'data-cd': t.due_date },
+          el('b', { class: 'dl-main', text: info.main }),
+          el('span', { class: 'dl-exact', text: info.exact })),
+        el('span', { class: 'dl-title', text: t.title }),
+        el('span', { class: 'dl-who', text: isOpenTask(t) ? `Åben · kan tages af ${POOL_LABEL[t.pool_role] || ''}` : taskPeople(t) })));
+  };
+  return el('aside', { class: 'deadlines', 'aria-label': 'Deadlines' },
+    el('div', { class: 'dl-head' },
+      el('h2', { text: 'Deadlines' }),
+      late ? el('span', { class: 'dl-late-n', text: `${late} overskredet` }) : null,
+      el('span', { class: 'dl-n', text: `${items.length} ${items.length === 1 ? 'opgave' : 'opgaver'}` })),
+    items.length ? el('ul', { class: 'dl-list' }, items.map(item)) : el('p', { class: 'none-yet', text: 'Ingen opgaver med deadline.' }));
 }
 
 // Dato uden år i indeværende år, ellers med år, så en deadline i næste år ikke misforstås.
