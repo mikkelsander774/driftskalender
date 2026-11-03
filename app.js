@@ -166,6 +166,8 @@ const S = {
   token: store.get('dk_token'),
   me: null, members: [], avail: [], tasks: [], requests: [],
   departments: [], dept: store.get('dk_dept'), // afdelingen der vises nu (administrator og Drift kan skifte)
+  // "Vis som": administrator ser siden som en anden person (kun visning). viewAs er personens id, real er administratoren selv.
+  viewAs: null, real: null, realMembers: [], realDepartments: [], prev: null,
   colors: {},
   view: 'kalender',
   month: startOfMonth(new Date()),
@@ -201,8 +203,13 @@ function rankColors() {
 }
 
 /* ---------- API ---------- */
+// Under "Vis som" kan der kun hentes. Alt der ville ændre noget, afvises her, så administratoren ikke ved et uheld retter som en anden.
+const VIEW_ONLY_OK = ['load', 'logout'];
 async function api(action, data, opts) {
   const o = opts || {};
+  if (S.viewAs && !VIEW_ONLY_OK.includes(action)) {
+    return { ok: false, error: `Du ser siden som ${S.me ? S.me.name : 'en anden'}. Afslut visningen for at ændre noget.` };
+  }
   const body = Object.assign({ action }, data || {});
   if (o.auth !== false && S.token) body.token = S.token;
   let res;
@@ -223,7 +230,7 @@ async function api(action, data, opts) {
 function sessionExpired() {
   if (!S.token) return;
   store.del('dk_token');
-  S.token = null; S.me = null;
+  S.token = null; S.me = null; S.viewAs = null; S.real = null; S.prev = null;
   showLogin('Din session er udløbet. Log ind igen.');
 }
 
@@ -238,7 +245,7 @@ function applyData(r, from, to) {
   S.departments = r.departments || [];
   // Serveren afgør hvilken afdeling der kan vises. Den vælges kun frit af administrator og Drift.
   if (r.department !== S.dept) { S.dept = r.department || null; }
-  if (S.dept) store.set('dk_dept', S.dept);
+  if (S.dept && !S.viewAs) store.set('dk_dept', S.dept);
   S.range = [from, to];
   S.sig = sigOf(r);
   rankColors();
@@ -246,7 +253,7 @@ function applyData(r, from, to) {
 async function loadData() {
   const [f, t] = gridRange(S.month);
   const from = iso(f), to = iso(t);
-  const r = await api('load', { from, to, department: S.dept || '' });
+  const r = await api('load', { from, to, department: S.dept || '', view_as: S.viewAs || '' });
   if (r && r.ok) applyData(r, from, to);
   return r;
 }
@@ -254,7 +261,7 @@ async function loadData() {
 function switchDept(id) {
   if (!id || id === S.dept) return;
   S.dept = id;
-  store.set('dk_dept', id);
+  if (!S.viewAs) store.set('dk_dept', id);
   S.selected = null; S.sheetOpen = false; S.picked.clear(); S.multi = false; S.form = null; S.focusMember = null;
   reload();
 }
@@ -267,7 +274,7 @@ async function reload() {
 async function silentRefresh() {
   if (!S.token || !S.me || !S.range || document.hidden || document.querySelector('dialog[open]') || S.multi) return;
   if (document.activeElement && document.activeElement.closest && document.activeElement.closest('.panel input, .panel select')) return;
-  const r = await api('load', { from: S.range[0], to: S.range[1], department: S.dept || '' });
+  const r = await api('load', { from: S.range[0], to: S.range[1], department: S.dept || '', view_as: S.viewAs || '' });
   if (!r || !r.ok) return;
   if (sigOf(r) === S.sig) return;
   applyData(r, S.range[0], S.range[1]);
@@ -306,7 +313,7 @@ function go(view) {
 function topbar() {
   const tabs = [['kalender', 'Kalender'], ['opgaver', 'Opgaver']];
   if (canSeeMembers()) tabs.push(['medarbejdere', 'Medarbejdere']);
-  return el('header', { class: 'topbar' },
+  return el('header', { class: 'topbar' + (S.viewAs ? ' viewing' : '') },
     el('a', { class: 'brand', href: '#kalender', onclick: e => { e.preventDefault(); go('kalender'); } },
       mark(28), el('span', { class: 'brand-name', text: 'Driftskalender' })),
     el('nav', { class: 'tabs', 'aria-label': 'Hovedmenu' },
@@ -315,7 +322,8 @@ function topbar() {
         'data-fk': 'tab-' + k, onclick: () => go(k), text: l,
       }))),
     deptSwitch(),
-    accountMenu());
+    S.viewAs ? null : accountMenu(),
+    viewAsBar());
 }
 
 // Afdeling: administrator og Drift kan skifte mellem dem (Medarbejdere viser alle). Alle andre ser navnet på deres egen.
@@ -338,8 +346,86 @@ function accountMenu() {
       el('span', { class: 'role', text: (ROLES[S.me.role] || '') + (S.me.is_admin ? ', administrator' : '') + (isViewer() ? ', kun læseadgang' : '') })),
     el('div', { class: 'acct-menu' },
       el('button', { type: 'button', text: 'Skift adgangskode', onclick: () => { details.open = false; passwordDialog(); } }),
+      S.me.is_admin ? el('button', { type: 'button', text: 'Vis som…', 'data-fk': 'viewas-open', onclick: () => { details.open = false; viewAsDialog(); } }) : null,
       el('button', { type: 'button', text: 'Log ud', onclick: logout })));
   return details;
+}
+
+/* ---------- Vis som (kun visning) ---------- */
+// Administrator vælger en person, og siden hentes og vises præcis som den person ser den: samme data, faner og knapper.
+// Serveren beregner visningen (view_as), så intet er efterlignet i siden. Alle ændrende kald afvises i api().
+function startViewAs(id) {
+  const real = S.viewAs ? S.real : S.me;
+  if (!real || !real.is_admin) return Promise.resolve();
+  return (async () => {
+    const before = { viewAs: S.viewAs, real: S.real, realMembers: S.realMembers, realDepartments: S.realDepartments, prev: S.prev, dept: S.dept };
+    if (!S.viewAs) {
+      S.real = S.me; S.realMembers = S.members; S.realDepartments = S.departments;
+      S.prev = { dept: S.dept, view: S.view };
+    }
+    S.viewAs = id;
+    S.selected = null; S.sheetOpen = false; S.picked.clear(); S.multi = false; S.form = null; S.focusMember = null;
+    S.onlyMine = false; S.showDone = false;
+    const r = await loadData();
+    if (!r || !r.ok) {
+      Object.assign(S, before);
+      if (r && r.error && r.auth !== false) toast(r.error, true);
+      return;
+    }
+    renderApp();
+    window.scrollTo(0, 0);
+  })();
+}
+async function stopViewAs() {
+  const prev = S.prev;
+  S.viewAs = null; S.real = null; S.realMembers = []; S.realDepartments = []; S.prev = null;
+  S.selected = null; S.sheetOpen = false; S.picked.clear(); S.multi = false; S.form = null; S.focusMember = null;
+  S.onlyMine = false; S.showDone = false;
+  if (prev) { S.dept = prev.dept; S.view = VIEWS.includes(prev.view) ? prev.view : 'kalender'; }
+  await reload();
+}
+
+function viewAsBar() {
+  if (!S.viewAs || !S.me) return null;
+  const m = S.me;
+  const dep = (S.departments.find(d => d.id === m.department_id) || {}).name;
+  const self = S.real && m.id === S.real.id;
+  const who = [ROLES[m.role], self ? 'uden administratorrettigheder' : null, dep].filter(Boolean).join(', ');
+  return el('div', { class: 'viewas-bar', role: 'status' },
+    el('span', { class: 'viewas-text' }, 'Du ser siden som ', el('b', { text: m.name }), ` (${who}). Kun visning: du kan ikke ændre noget.`),
+    el('span', { class: 'viewas-actions' },
+      el('button', { type: 'button', class: 'btn small', text: 'Skift person', 'data-fk': 'viewas-switch', onclick: viewAsDialog }),
+      el('button', { type: 'button', class: 'btn small primary', text: 'Afslut visning', 'data-fk': 'viewas-stop', onclick: stopViewAs })));
+}
+
+function viewAsDialog() {
+  const real = S.viewAs ? S.real : S.me;
+  if (!real || !real.is_admin) return;
+  const all = S.viewAs ? S.realMembers : S.members;
+  const members = all.filter(m => m.active && m.id !== real.id);
+  const departments = S.viewAs ? S.realDepartments : S.departments;
+  const roleRank = { teamleder: 0, tuk: 1, problemmanager: 2, drift: 3 };
+  const sorted = list => list.slice().sort((a, b) => (roleRank[a.role] - roleRank[b.role]) || a.name.localeCompare(b.name, 'da'));
+  const nameOf = id => (all.find(x => x.id === id) || {}).name;
+  openDialog({
+    title: 'Vis siden som',
+    build(body, dlg) {
+      const pick = (id, name, sub, fk) => el('button', { type: 'button', class: 'pick', 'data-fk': fk, onclick: () => { dlg.close(); startViewAs(id); } },
+        el('b', { text: name }), sub ? el('small', { text: sub }) : null);
+      const sub = m => [ROLES[m.role], nameOf(m.team_leader_id) ? `teamleder: ${nameOf(m.team_leader_id)}` : null, m.invited ? 'ikke oprettet endnu' : null].filter(Boolean).join(', ');
+      const group = (title, list) => list.length ? el('section', { class: 'viewas-group', 'aria-label': title },
+        el('h3', { text: title }), el('div', { class: 'pick-list' }, sorted(list).map(m => pick(m.id, m.name, sub(m), 'viewas-' + m.id)))) : null;
+      const groups = departments.map(d => group(d.name, members.filter(m => m.role !== 'drift' && m.department_id === d.id)))
+        .concat(group('Drift (kun læseadgang)', members.filter(m => m.role === 'drift'))).filter(Boolean);
+      body.append(
+        el('p', { text: 'Vælg en person. Siden vises præcis, som vedkommende ser den, med samme faner, data og knapper. Du kan kun se, ikke ændre noget.' }),
+        el('section', { class: 'viewas-group', 'aria-label': 'Dig selv' },
+          el('h3', { text: 'Dig selv' }),
+          el('div', { class: 'pick-list' }, pick(real.id, `${real.name} som almindelig ${(ROLES[real.role] || 'medarbejder').toLowerCase()}`, 'Uden administratorrettigheder', 'viewas-self'))),
+        ...groups,
+        el('div', { class: 'dlg-actions' }, el('button', { type: 'button', class: 'btn', text: 'Annuller', onclick: () => dlg.close() })));
+    },
+  });
 }
 
 /* ---------- Kalender ---------- */
@@ -1493,7 +1579,7 @@ function passwordDialog() {
 async function logout() {
   await api('logout');
   store.del('dk_token');
-  S.token = null; S.me = null; S.selected = null; S.form = null;
+  S.token = null; S.me = null; S.selected = null; S.form = null; S.viewAs = null; S.real = null; S.prev = null;
   showLogin();
 }
 

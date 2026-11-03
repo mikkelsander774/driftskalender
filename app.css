@@ -33,6 +33,8 @@
   --focus: #2467c9;
   --danger: #b8341c;
   --danger-wash: #fbe9e5;
+  --view: #7a4b00;
+  --view-wash: #fff1cc;
   --ok: #26804a;
   --f-display: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif;
   --f-ui: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -560,3 +562,22 @@ dialog.dlg::backdrop { background: rgba(20, 34, 45, .5); }
 }
 
 .loading { padding: 3rem 1rem; text-align: center; color: var(--ink-2); }
+
+/* ---------- Vis som (administrator ser siden som en anden) ---------- */
+.topbar.viewing { flex-wrap: wrap; row-gap: .45rem; border-bottom: 2px solid var(--view); }
+.viewas-bar {
+  order: 10; flex: 1 1 100%;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .45rem .9rem;
+  margin: .1rem calc(-1 * clamp(.75rem, 2.5vw, 2rem)) -.55rem; padding: .5rem clamp(.75rem, 2.5vw, 2rem);
+  background: var(--view-wash); color: var(--ink); border-top: 1px solid #ecd9a3;
+}
+.viewas-text { flex: 1 1 20rem; }
+.viewas-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.viewas-group h3 { font-size: .95rem; color: var(--ink-2); margin: .35rem 0 .4rem; }
+.pick-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .4rem; }
+.pick {
+  display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; width: 100%; text-align: left;
+  padding: .55rem .75rem; border: 1px solid var(--line); border-radius: var(--r); background: var(--paper); color: var(--ink);
+}
+.pick:hover { background: var(--line-2); }
+.pick small { color: var(--ink-3); }

@@ -34,6 +34,14 @@ Kalenderen deles af flere afdelinger. I dag er der to: **Teknisk Support** og **
 - Kun administrator kan invitere, flytte mellem afdelinger, bestemme teamleder, deaktivere og nulstille adgang.
 - **Drift** er en rolle med kun læseadgang til begge afdelinger: kalender, opgaver og medarbejderliste (navne og roller, uden e-mailadresser). Drift har ingen afdeling og kan ikke tilmelde sig eller oprette, rette eller afslutte opgaver, og kan ikke være administrator. Eneste undtagelse er ønsker om støtte, som Drift kan oprette i begge afdelinger og rette/slette egne af. Det håndhæves i databasefunktionen, ikke kun i siden. Kun skift af egen adgangskode og log ud er tilladt. Drift indgår ikke som person i kalender, opgavekolonner eller tilmeldingsvalg.
 
+## Vis som (kun administrator)
+
+Under kontomenuen findes **Vis som…**. Administratoren vælger en person (eller sig selv som almindelig teamleder uden administratorrettigheder), og siden vises præcis som den person ser den: samme afdeling, faner, data og knapper. Et gult banner øverst fortæller hvem man ser som, med knapperne Skift person og Afslut visning.
+
+- Visningen beregnes af serveren (`load` med `view_as`), så den er identisk med personens egen. Intet er efterlignet i siden. Kun administratorer kan bruge den, og andre sender ignoreres. En deaktiveret eller ukendt person afvises.
+- Det er **kun visning**. Siden afviser alle kald, der ville ændre noget (oprette, rette, afkrydse, sende besked), og de når aldrig serveren. Et forsøg giver beskeden "Afslut visningen for at ændre noget".
+- Administratorens egen side, fane og afdelingsvalg genskabes, når visningen afsluttes. Visningen huskes ikke, hvis siden genindlæses.
+
 ## Drift
 
 - Ny medarbejder: fanen Medarbejdere, Inviter medarbejder, vælg rolle, afdeling og (for TUK og ProblemManager) teamleder, og send linket (det gælder i 14 dage og kan bruges én gang). Vælg rollen "Drift (kun læseadgang)" til dem, der kun skal kunne se. Afdeling og teamleder kan altid ændres bagefter i listen.
